@@ -217,9 +217,13 @@ end
 --
 -- While Casement is installed but cannot be read (the old addon switched off, say), nothing is
 -- marked done, so the map's settings still come over at the first login it can be read, and one
--- chat line per account says how to make it readable. The one exception is a stub the user has
--- switched off after the account's share came over: it is left off without a word (see
--- FindCasementData). Only a login with no Casement at all closes the question for good.
+-- chat line per account says how to make it readable. Once the account's share has come over,
+-- nothing more is said: a stub the user has switched off since is left off, and the old addon
+-- switched off is left to the notice that switched it off (see FindCasementData). Only a login
+-- with no Casement at all closes the question for good.
+--
+-- In the session the old Casement still runs, it keeps the map, so the map's share is read once
+-- more at logout, and what the user changed on the map in the old addon comes over as well.
 -- ------------------------------------------------------------------
 
 local OLD = "Casement"
@@ -237,13 +241,15 @@ end
 
 -- Whether Casement is switched off, and for whom. GetAddOnInfo only reports DISABLED when an addon
 -- is off for every character, so the state for this character is asked for as well where the
--- client can say. Returns nil while it is switched on.
+-- client can say. Returns nil while it is switched on. The per character answer is only a hint:
+-- clients differ in what they take as the character, so it is never the only reason to leave the
+-- stub unread (LoadAddOn's own refusal is what counts, see FindCasementData).
 local function SwitchedOff(reason)
 	if reason == "DISABLED" then return "for every character" end
 	local ok, state
 	if type(C_AddOns) == "table" and type(C_AddOns.GetAddOnEnableState) == "function" then
-		local who = (UnitGUID and UnitGUID("player")) or (UnitName and UnitName("player"))
-		ok, state = pcall(C_AddOns.GetAddOnEnableState, OLD, who)
+		-- The character by name, as the older form and Bank Tabs ask.
+		ok, state = pcall(C_AddOns.GetAddOnEnableState, OLD, UnitName and UnitName("player"))
 	elseif type(_G.GetAddOnEnableState) == "function" then
 		-- The older form takes the character first.
 		ok, state = pcall(_G.GetAddOnEnableState, UnitName and UnitName("player"), OLD)
@@ -263,10 +269,11 @@ end
 
 -- Makes Casement's saved variables readable, if there are any. Returns how they were found, or
 -- nil, why not, whether that is for good (not installed) or worth another look at the next login,
--- which Casement it was ("old" for the whole old addon, "stub" for the data stub), and whether the
--- reason is the user's own choice and nothing needs saying. `needAccount` says the account's share
--- has not come over yet.
-local function FindCasementData(needAccount)
+-- which Casement it was ("old" for the whole old addon, "stub" for the data stub), and whether
+-- nothing needs saying (the user's own choice, or already told). `needAccount` says the account's
+-- share has not come over yet; `stoodDown` says the old Casement was switched off by the notice
+-- (see RetireOldCasement) and the stub has not been read since.
+local function FindCasementData(needAccount, stoodDown)
 	if type(CasementAccountDB) == "table" or type(CasementDB) == "table" then return "already in memory" end
 	local ok, name, _, _, loadable, reason = AddOnCall("GetAddOnInfo", OLD)
 	if not ok or not name or reason == "MISSING" then return nil, "not installed", true end
@@ -275,33 +282,45 @@ local function FindCasementData(needAccount)
 	if not (okLod and lod) and reason ~= "DEMAND_LOADED" then
 		-- The old, whole addon. Switched on, its code has run and its data is already in memory,
 		-- so here it is switched off or failed to load. It is left alone: its code would run.
+		-- Once the account's share has come over, Casement was read at an earlier login: as a rule
+		-- the old addon ran then and the notice switched it off, which already said to update it.
+		-- Only this character's map settings are left, which is no reason to ask for the old addon
+		-- to be run again, so this goes to the report alone.
 		local off = SwitchedOff(reason)
 		local state = off and "switched off" or ("not running (" .. string.lower(tostring(reason or (loadable and "not loaded" or "not loadable"))) .. ")")
+		if not needAccount then
+			return nil, "installed but " .. state .. ", and the account's share came over at an earlier login, so nothing is said", false, "old", true
+		end
 		return nil, "installed but " .. state, false, "old"
 	end
 
 	-- The old data stub. A load on demand addon that has not been loaded yet reports itself as not
 	-- loadable, with the reason DEMAND_LOADED, so the answer that counts is LoadAddOn's own. A stub
-	-- that is switched off (an earlier session switched the old Casement off before it was updated
-	-- to the stub, for every character or only this one) is switched back on first, while the
-	-- account's share is still to come over. Once it has come over, a stub switched off since is
-	-- the user's doing: only this character's map settings are left, which is not worth overruling
-	-- them for, or switching it back on for every character, so it is left off and they come over
-	-- if it is switched on again. Bank Tabs treats the stub the same way, so with both installed
-	-- neither switches it back on behind the user's back.
+	-- that is switched off is switched back on first while the account's share is still to come
+	-- over, and while the old Casement's own switch off may be what left it off: an earlier session
+	-- switched the old Casement off with the notice before it was updated to the stub, and the
+	-- switch stays with the folder. Otherwise a stub switched off after the account's share came
+	-- over is the user's doing: only this character's map settings are left, which is not worth
+	-- overruling them for, or switching it back on for every character, so it is left off and they
+	-- come over if it is switched on again. Bank Tabs leaves the stub off in the same case.
+	local overrule = needAccount or stoodDown
 	local function LeftOff(who)
 		return nil, "(old data) is switched off " .. who .. " and the account's share came over at an earlier login, so it is left off", false, "stub", true
 	end
 	local switched = false
 	local off = SwitchedOff(reason)
 	if off then
-		if not needAccount then return LeftOff(off) end
-		switched = SwitchStubOn(off)
+		if overrule then
+			switched = SwitchStubOn(off)
+		elseif reason == "DISABLED" then
+			return LeftOff(off)
+		end
+		-- Off for this character by the enable state alone: only a hint, so LoadAddOn decides.
 	end
 	local okLoad, loaded, why = AddOnCall("LoadAddOn", OLD)
 	if okLoad and not loaded and why == "DISABLED" and not switched then
-		-- Off for this character on a client that could not say so beforehand.
-		if not needAccount then return LeftOff("for this character") end
+		-- Off for this character, which the client could not say (or not surely) beforehand.
+		if not overrule then return LeftOff("for this character") end
 		switched = SwitchStubOn("for this character")
 		okLoad, loaded, why = AddOnCall("LoadAddOn", OLD)
 	end
@@ -315,10 +334,14 @@ end
 
 -- Copies one plain value across. Only over a value that is still the default here, unless `fresh`
 -- says this character's table was made or adopted this session, so nothing in it is this
--- character's own choice yet and this character's own Casement value is the one to keep.
+-- character's own choice yet and this character's own Casement value is the one to keep. Even
+-- then a Casement value that is only the default is not copied: Casement filled every missing
+-- setting in with its default, which is no choice of this character's, and would otherwise undo
+-- a choice made in Map Tab on another character that the adopted account copy carries.
 local function Adopt(dst, src, defaults, key, fresh)
 	local value = src[key]
 	if value == nil or type(value) ~= type(defaults[key]) then return 0 end
+	if fresh and value == defaults[key] then return 0 end
 	if not fresh and dst[key] ~= defaults[key] then return 0 end
 	if dst[key] == value then return 0 end
 	dst[key] = value
@@ -364,6 +387,69 @@ local function ImportOverlays(src)
 	return n
 end
 
+-- The world map settings as they stand right after this character's import, for FollowCasement.
+local function Snapshot()
+	local db = ns.db
+	local snap = { top = {}, windows = { worldmap = db.windows.worldmap }, map = {} }
+	for _, key in ipairs({ "enabled", "dragModifier", "showGrips" }) do snap.top[key] = db[key] end
+	for key in pairs(ns.defaults.map) do snap.map[key] = db.map[key] end
+	local pos = db.positions.worldmap
+	snap.pos = type(pos) == "table" and { x = pos.x, y = pos.y } or false
+	return snap
+end
+
+-- One plain value, followed from the old Casement: only while Map Tab still holds what it had
+-- right after the import, since anything changed in Map Tab since is the newer choice.
+local function Follow(dst, src, defaults, key, was)
+	local value = src[key]
+	if value == nil or type(value) ~= type(defaults[key]) then return 0 end
+	if dst[key] ~= was or dst[key] == value then return 0 end
+	dst[key] = value
+	return 1
+end
+
+-- The session the old Casement is still running, it keeps the world map until the next one (see
+-- ns.MapOn), and this character's settings were brought over at login. Whatever the user did to
+-- the map in the old Casement since, moving it, sizing it, flipping its switches, would otherwise
+-- be lost when the old addon is switched off, so at logout (a /reload included) the map's share
+-- is read once more from Casement's live tables. The reveal's learned areas are merged again too.
+local function FollowCasement()
+	local snap = ns.casementFollow
+	ns.casementFollow = nil
+	local src, db = _G.CasementDB, ns.db
+	if not snap or type(src) ~= "table" or type(db) ~= "table" then return end
+	local defaults, n = ns.defaults, 0
+	for key, was in pairs(snap.top) do n = n + Follow(db, src, defaults, key, was) end
+	if type(src.windows) == "table" and type(db.windows) == "table" then
+		n = n + Follow(db.windows, src.windows, defaults.windows, "worldmap", snap.windows.worldmap)
+	end
+	if type(src.map) == "table" and type(db.map) == "table" then
+		for key, was in pairs(snap.map) do n = n + Follow(db.map, src.map, defaults.map, key, was) end
+	end
+	if type(db.positions) == "table" then
+		local mine, was = db.positions.worldmap, snap.pos
+		local untouched = (was == false and mine == nil)
+			or (was and type(mine) == "table" and mine.x == was.x and mine.y == was.y)
+		local theirs = type(src.positions) == "table" and src.positions.worldmap or nil
+		if untouched then
+			if type(theirs) == "table" and type(theirs.x) == "number" and type(theirs.y) == "number" then
+				if not (was and theirs.x == was.x and theirs.y == was.y) then
+					db.positions.worldmap = { x = theirs.x, y = theirs.y }
+					n = n + 1
+				end
+			elseif theirs == nil and was then
+				-- Put back where the game had it in the old Casement: forgotten here too.
+				db.positions.worldmap = nil
+				n = n + 1
+			end
+		end
+	end
+	local old = _G.CasementAccountDB
+	local areas = type(old) == "table" and ImportOverlays(old.overlays) or 0
+	report["casement data"] = tostring(report["casement data"]) .. "; at logout, " .. n .. " later change"
+		.. (n == 1 and "" or "s") .. " followed from the old Casement and " .. areas .. " more learned map areas"
+end
+
 function ns.ImportCasement()
 	local account, db = MapTabAccountDB, ns.db
 	local needAccount = not account.importedCasement
@@ -373,7 +459,7 @@ function ns.ImportCasement()
 		return
 	end
 
-	local how, why, final, kind, quiet = FindCasementData(needAccount)
+	local how, why, final, kind, quiet = FindCasementData(needAccount, account.casementStoodDown)
 	if not how then
 		if final then
 			account.importedCasement = true
@@ -406,6 +492,9 @@ function ns.ImportCasement()
 			-- This character's own settings. A table made or adopted this session holds nothing
 			-- this character chose, so they replace it; otherwise they only fill in defaults.
 			settings, from = ImportSettings(CasementDB, true, ns.dbFresh), "this character"
+			-- The old Casement running this session keeps the map until the next one, so what the
+			-- user changes on it meanwhile comes over again at logout (see FollowCasement).
+			if ns.oldCasementRunning then ns.casementFollow = Snapshot() end
 		elseif old and type(old.profile) == "table" then
 			-- A character that never ran Casement gets what Casement itself would have given it:
 			-- the account copy of the settings, without anyone else's map position. Map Tab's own
@@ -415,6 +504,8 @@ function ns.ImportCasement()
 	end
 	account.importedCasement = true
 	db.importedCasement = true
+	-- Read with the old Casement gone, so a stub switched off from here on is the user's doing.
+	if not ns.oldCasementRunning then account.casementStoodDown = nil end
 
 	report["casement data"] = "brought over (" .. how .. "): " .. settings .. " settings from " .. tostring(from or "nowhere")
 		.. ", " .. overlays .. " learned map areas" .. (needAccount and "" or " (the account's share came over earlier)")
@@ -443,11 +534,17 @@ end
 -- off for the next session with one chat line. Bank Tabs, the other half, does the same, so
 -- whichever of the two reaches PLAYER_LOGIN first switches it off, tells the user and sets the
 -- shared mark; the other finds the mark and stays quiet.
+--
+-- Either way the account remembers that the old Casement was switched off by the notice
+-- (`casementStoodDown`): updated to the data stub, the folder keeps that switch, and a stub found
+-- switched off is then not the user's doing, so FindCasementData switches it on for a later
+-- character's settings until the stub has been read once.
 local function RetireOldCasement()
 	if not OldCasementRunning() then
 		report["old casement"] = "not running"
 		return
 	end
+	MapTabAccountDB.casementStoodDown = true
 	local aside = "; Map Tab leaves the world map to it until the next session"
 	if _G[NOTICE] then
 		report["old casement"] = "running this session; " .. tostring(_G[NOTICE]) .. " already switched it off and told the user" .. aside
@@ -838,6 +935,10 @@ frame:SetScript("OnEvent", function(self, event, ...)
 		if ns.SyncOptions then pcall(ns.SyncOptions) end
 
 	elseif event == "PLAYER_LOGOUT" then
+		if ns.casementFollow then
+			local ok, err = pcall(FollowCasement)
+			if not ok then report["casement data"] = "failed at logout: " .. tostring(err) end
+		end
 		MirrorToAccount()
 		return
 	end

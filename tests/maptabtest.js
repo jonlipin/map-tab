@@ -299,6 +299,7 @@ end
 ADDONS = {}
 LOADED, DISABLED, ENABLED = {}, {}, {}
 SAVED_ADDONS = 0
+ENABLE_STATE_WHO = false -- the character GetAddOnEnableState was last asked about
 ADDON_INFO_ERRORS = ADDON_INFO_ERRORS or false
 function UnitName(unit) return "Vatik" end
 function UnitGUID(unit) return "Player-70-0A1B2C3D" end
@@ -329,9 +330,11 @@ C_AddOns = {
   end,
   IsAddOnLoadOnDemand = function(name) return ADDONS[name] ~= nil and ADDONS[name].lod == true end,
   -- 0 off, 1 on for some characters, 2 on for all; with a character, that character's state.
+  -- stateZero stands for a client that answers 0 for a character argument it reads differently.
   GetAddOnEnableState = function(name, character)
+    ENABLE_STATE_WHO = character
     local a = ADDONS[name]
-    if not a or a.reason == "DISABLED" then return 0 end
+    if not a or a.reason == "DISABLED" or a.stateZero then return 0 end
     if a.charDisabled then return character ~= nil and 0 or 1 end
     return 2
   end,
@@ -1459,6 +1462,20 @@ local resetRow
 for _, f in ipairs(FRAMES) do if f.kind == "Button" and f.text == "Reset" then resetRow = f end end
 DragTo(map, strip1, 500, 300)
 ns.Map.SetScale(1.4)
+-- Switched off here, the map switch does what /maptab lock does: the map goes back to the game,
+-- and its saved spot and size wait for it to be switched on again. Only Reset forgets them.
+local placed = ns.db.positions["worldmap"]
+local placedX = placed and placed.x
+mapSwitch:SetChecked(false)
+mapSwitch.scripts.OnClick(mapSwitch)
+check("switched off on the page, the map goes back to the game's spot at its own size", near(ns.Windows.Measure(map), 20, 1)
+  and near(map:GetScale(), 1, 0.001), ns.Windows.Measure(map))
+check("but its saved spot and size are kept, as /maptab lock keeps them", placedX ~= nil and ns.db.positions["worldmap"] ~= nil
+  and ns.db.positions["worldmap"].x == placedX and near(ns.db.map.scale, 1.4, 0.001), ns.db.positions["worldmap"] and ns.db.positions["worldmap"].x)
+mapSwitch:SetChecked(true)
+mapSwitch.scripts.OnClick(mapSwitch)
+check("switched back on, the map returns to its spot at its size", near(ns.Windows.Measure(map), placedX or -1, 1)
+  and near(map:GetScale(), 1.4, 0.001), ns.Windows.Measure(map))
 ns.SyncOptions()
 check("its Reset is live once the map has been moved or sized", resetRow ~= nil and resetRow.enabled == true)
 resetRow.scripts.OnClick(resetRow)
@@ -1604,6 +1621,7 @@ check("the report says where it came from", (ns.report["casement data"] or ""):f
   and ns.report["casement data"]:find("from this character", 1, true) ~= nil, ns.report["casement data"])
 check("the account copy of the settings has them", MapTabAccountDB.profile.map.scale == 1.3)
 check("the stub is not the old addon, so nothing is switched off", #DISABLED == 0 and ChatSaying("two addons") == 0)
+check("nor is the old Casement remembered as switched off by the notice", MapTabAccountDB.casementStoodDown == nil)
 
 WorldMapFrame:Show()
 RunTimers(1)
@@ -1662,6 +1680,69 @@ check("/maptab unlock says the old Casement has the map until a reload", CHAT[#C
 check("nothing failed", #ReportFailures() == 0 and #TIMER_ERRORS == 0, ReportFailures()[1] or TIMER_ERRORS[1])
 local foreign = ForeignGlobals({ CASEMENT_REPLACED_NOTICE = true })
 check("besides the shared notice mark, only Map Tab's names were added", #foreign == 0, table.concat(foreign, ", "))
+check("the account remembers the old Casement was switched off by the notice", MapTabAccountDB.casementStoodDown == true)
+
+-- The rest of the session the user works the map in the old Casement, which writes into its own
+-- live tables, and changes one thing in Map Tab's options. At logout (or a /reload) the old
+-- addon's later changes come over, but never over what was changed in Map Tab meanwhile.
+CasementDB.map.scale = 1.2
+CasementDB.positions.worldmap = { x = 300, y = 210 }
+CasementDB.map.coordsCursor = false
+CasementDB.map.revealTint = "blue"
+CasementDB.dragModifier = "shift"
+ns.db.map.revealTint = "grey"
+CasementAccountDB.overlays[20] = { ["1:1:1:1"] = "5" }
+fire("PLAYER_LOGOUT")
+check("at logout, the size set in the old Casement since login comes over", near(ns.db.map.scale, 1.2, 0.001), ns.db.map.scale)
+check("and where the map was moved to", ns.db.positions.worldmap and ns.db.positions.worldmap.x == 300 and ns.db.positions.worldmap.y == 210)
+check("and a switch flipped there, and its drag key", ns.db.map.coordsCursor == false and ns.db.dragModifier == "shift")
+check("but not over a setting changed in Map Tab since login", ns.db.map.revealTint == "grey", ns.db.map.revealTint)
+check("a setting nobody changed stays as it came over", ns.db.map.reveal == true and ns.db.showGrips == true)
+check("map areas the old Casement learned since login are merged in", MapTabAccountDB.overlays[20] and MapTabAccountDB.overlays[20]["1:1:1:1"] == "5")
+check("the account copy written at logout has the followed values", MapTabAccountDB.profile.map.scale == 1.2 and MapTabAccountDB.profile.positions.worldmap.x == 300)
+check("the report says what was followed", (ns.report["casement data"] or ""):find("4 later changes followed from the old Casement and 1 more learned map areas", 1, true) ~= nil,
+  ns.report["casement data"])
+check("Casement's own tables are still only read", CasementDB.map.revealTint == "blue" and CasementDB.positions.worldmap.x == 300)
+check("nothing is said at logout", ChatSaying("later change") == 0)
+`;
+
+const oldRunningFollowReset = String.raw`
+-- The old Casement is running; in it the user puts the map back where the game had it, which
+-- forgets its saved spot. Map Tab forgets the spot it brought over at login as well.
+ADDONS.Casement = { title = "Casement", loadable = true, lod = false, loaded = true }
+CasementFrame = CreateFrame("Frame", "CasementFrame", UIParent)
+CasementAccountDB = CasementAccount()
+CasementDB = CasementCharacter()
+
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+check("the map's spot came over at login", ns.db.positions.worldmap and ns.db.positions.worldmap.x == 250)
+CasementDB.positions.worldmap = nil
+fire("PLAYER_LOGOUT")
+check("a spot forgotten in the old Casement is forgotten here too", ns.db.positions.worldmap == nil)
+check("the size, untouched in both, stays as it came over", near(ns.db.map.scale, 1.3, 0.001), ns.db.map.scale)
+check("nothing failed", #ReportFailures() == 0 and #TIMER_ERRORS == 0, ReportFailures()[1] or TIMER_ERRORS[1])
+`;
+
+const oldRunningAlreadyImported = String.raw`
+-- The old Casement runs again on a character whose settings Map Tab already brought over (the user
+-- switched it back on). Nothing is imported this session, so nothing is followed at logout either.
+ADDONS.Casement = { title = "Casement", loadable = true, lod = false, loaded = true }
+CasementFrame = CreateFrame("Frame", "CasementFrame", UIParent)
+CasementAccountDB = CasementAccount()
+CasementDB = CasementCharacter()
+MapTabAccountDB = { importedCasement = true, overlays = {} }
+MapTabDB = { importedCasement = true, map = { scale = 1.1 } }
+
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+CasementDB.map.scale = 1.7
+fire("PLAYER_LOGOUT")
+check("already brought over, the old Casement's size is not followed at logout", near(ns.db.map.scale, 1.1, 0.001), ns.db.map.scale)
+check("and its learned areas are not merged", next(MapTabAccountDB.overlays) == nil)
+check("it is still switched off, and the account remembers the notice did it", #DISABLED == 1 and MapTabAccountDB.casementStoodDown == true)
 `;
 
 const oldRunningMapTabFirst = String.raw`
@@ -1707,6 +1788,7 @@ check("with Map Tab's own one line", ChatSaying("from Casement") == 1, CHAT[#CHA
 check("nothing of Bank Tabs' half was taken", MapTabAccountDB.vault == nil and ns.db.positions.bank == nil)
 check("the map is left to the old Casement this session all the same", ns.MapOn() == false
   and (ns.report["old casement"] or ""):find("leaves the world map to it", 1, true) ~= nil, ns.report["old casement"])
+check("with Bank Tabs having spoken, the account still remembers the notice switched it off", MapTabAccountDB.casementStoodDown == true)
 `;
 
 const oldSwitchedOff = String.raw`
@@ -1909,7 +1991,7 @@ ADDONS.Casement = { title = "Casement (old data)", loadable = false, lod = true,
   CasementDB = CasementCharacter()
 end }
 MapTabAccountDB = { importedCasement = true, overlays = {},
-  profile = { importedCasement = true, enabled = true, windows = { worldmap = true }, map = { scale = 1.4 }, positions = { worldmap = { x = 5, y = 5 } } } }
+  profile = { importedCasement = true, enabled = true, windows = { worldmap = true }, map = { scale = 1.4, topBarDrag = false }, positions = { worldmap = { x = 5, y = 5 } } } }
 MapTabDB = nil
 
 local ns = LoadMapTab()
@@ -1922,6 +2004,11 @@ check("this character's map position came over", ns.db.positions.worldmap and ns
 check("a setting still at its default came over", ns.db.map.coords == false and ns.db.dragModifier == "ctrl")
 check("this character's own Casement size replaces the one the adopted account copy had", near(ns.db.map.scale, 1.3, 0.001), ns.db.map.scale)
 check("as do its own switches", ns.db.showGrips == true and ns.db.map.reveal == true and ns.db.map.revealTint == "sepia" and ns.db.map.step == 5)
+-- Casement filled every setting it had no value for with its default, so this character's
+-- Casement table says topBarDrag = true without anyone choosing it. That must not undo a Map Tab
+-- choice from another character that the adopted account copy carries.
+check("this character's Casement table has the top bar drag at its default", CasementDB.map.topBarDrag == true)
+check("which does not undo the Map Tab choice the adopted account copy carries", ns.db.map.topBarDrag == false, ns.db.map.topBarDrag)
 check("the account's share is not merged a second time", next(MapTabAccountDB.overlays) == nil)
 check("no chat line for a later character", ChatSaying("Casement") == 0, CHAT[#CHAT])
 check("but the report records it", (ns.report["casement data"] or ""):find("came over earlier", 1, true) ~= nil, ns.report["casement data"])
@@ -2004,6 +2091,98 @@ check("the report says it is off for this character", (ns.report["casement data"
   ns.report["casement data"])
 `;
 
+const oldOffAfterImport = String.raw`
+-- A later character. The account's share came over at an earlier login, while the old Casement
+-- still ran, and the notice switched it off then. The old addon is still installed, not updated
+-- yet. Only this character's map settings are left, which is no reason to ask for the old addon to
+-- be run again (the notice already said to update it): nothing is said and the question stays open.
+ADDONS.Casement = { title = "Casement", loadable = false, reason = "DISABLED", lod = false }
+MapTabAccountDB = { importedCasement = true, casementStoodDown = true, overlays = {} }
+MapTabDB = nil
+
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+check("the old addon, switched off by the notice, is neither switched on nor loaded", #ENABLED == 0 and #LOADED == 0,
+  table.concat(ENABLED, ",") .. "/" .. table.concat(LOADED, ","))
+check("nothing is said: the notice already told the user to update it", ChatSaying("Casement") == 0, CHAT[#CHAT])
+check("the user is not marked as told", MapTabAccountDB.casementUnreadableTold == nil)
+check("this character's question stays open", ns.db.importedCasement == nil and MapTabAccountDB.importedCasement == true)
+check("the report says why", (ns.report["casement data"] or ""):find("the account's share came over at an earlier login, so nothing is said", 1, true) ~= nil,
+  ns.report["casement data"])
+
+-- Then Casement is updated to the data stub, which keeps the folder's switch: still off, but by
+-- the notice, not the user. It is switched on for this character's settings.
+ADDONS.Casement = { title = "Casement (old data)", loadable = false, reason = "DISABLED", lod = true, onLoad = function()
+  CasementAccountDB = CasementAccount()
+  CasementDB = CasementCharacter()
+end }
+fire("PLAYER_LOGIN")
+check("updated to the stub, still off from the notice, the stub is switched on", #ENABLED == 1 and ENABLED[1] == "Casement", table.concat(ENABLED, ","))
+check("and loaded", #LOADED == 1 and LOADED[1] == "Casement", table.concat(LOADED, ","))
+check("so this character's map settings come over", near(ns.db.map.scale, 1.3, 0.001) and ns.db.positions.worldmap ~= nil
+  and ns.db.positions.worldmap.x == 250 and ns.db.importedCasement == true)
+check("still without a chat line", ChatSaying("Casement") == 0, CHAT[#CHAT])
+check("and the notice's mark is cleared once the stub has been read", MapTabAccountDB.casementStoodDown == nil)
+`;
+
+const stubStoodDownAfterImport = String.raw`
+-- Both Map Tab and Bank Tabs brought the account over in the session the old Casement still ran,
+-- and it was switched off by the notice. Casement was then updated to the data stub, which keeps
+-- the folder's switch. A later character new to Map Tab finds the stub switched off for every
+-- character: not the user's doing, so it is switched on and read, once, without a word.
+ADDONS.Casement = { title = "Casement (old data)", loadable = false, reason = "DISABLED", lod = true, onLoad = function()
+  CasementAccountDB = CasementAccount()
+  CasementDB = CasementCharacter()
+end }
+MapTabAccountDB = { importedCasement = true, casementStoodDown = true, overlays = {} }
+MapTabDB = nil
+
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+check("a stub left off by the notice's switch off is switched on", #ENABLED == 1 and ENABLED[1] == "Casement", table.concat(ENABLED, ","))
+check("and loaded, once", #LOADED == 1 and LOADED[1] == "Casement", table.concat(LOADED, ","))
+check("so this character's map settings come over", near(ns.db.map.scale, 1.3, 0.001) and ns.db.positions.worldmap ~= nil
+  and ns.db.positions.worldmap.x == 250 and ns.db.importedCasement == true)
+check("the account's share is not merged a second time", next(MapTabAccountDB.overlays) == nil)
+check("without a word", ChatSaying("Casement") == 0, CHAT[#CHAT])
+check("the report says it was switched back on", (ns.report["casement data stub"] or ""):find("switched back on", 1, true) ~= nil, ns.report["casement data stub"])
+check("the notice's mark is cleared once the stub has been read", MapTabAccountDB.casementStoodDown == nil)
+
+-- The user switches the stub off after that, and another character new to Map Tab logs in (its
+-- Casement tables not loaded, its question open). Now the switch off is the user's: left off.
+ADDONS.Casement.loaded, ADDONS.Casement.loadable, ADDONS.Casement.reason = false, false, "DISABLED"
+CasementAccountDB, CasementDB = nil, nil
+ns.db.importedCasement = nil
+fire("PLAYER_LOGIN")
+check("switched off by the user after it was read, the stub is left off", #ENABLED == 1 and #LOADED == 1,
+  table.concat(ENABLED, ",") .. "/" .. table.concat(LOADED, ","))
+check("still without a word", ChatSaying("Casement") == 0, CHAT[#CHAT])
+check("and that character's question stays open", ns.db.importedCasement == nil)
+`;
+
+const stubStateZeroAfterImport = String.raw`
+-- The account's share came over earlier, and the stub is switched on, but the client answers 0
+-- when asked about this character (clients differ in what they take as the character). That
+-- answer alone must not leave the stub unread: LoadAddOn decides, and loads it.
+ADDONS.Casement = { title = "Casement (old data)", loadable = false, reason = "DEMAND_LOADED", lod = true, stateZero = true, onLoad = function()
+  CasementAccountDB = CasementAccount()
+  CasementDB = CasementCharacter()
+end }
+MapTabAccountDB = { importedCasement = true, overlays = {} }
+MapTabDB = nil
+
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+check("the enable state is asked for by character name, as Bank Tabs asks", ENABLE_STATE_WHO == "Vatik", tostring(ENABLE_STATE_WHO))
+check("an enable state of 0 alone does not leave a loadable stub unread", #LOADED == 1 and CasementDB ~= nil, table.concat(LOADED, ","))
+check("nothing needed switching on", #ENABLED == 0, table.concat(ENABLED, ","))
+check("so this character's map settings come over", near(ns.db.map.scale, 1.3, 0.001) and ns.db.importedCasement == true)
+check("without a word", ChatSaying("Casement") == 0, CHAT[#CHAT])
+`;
+
 // ------------------------------------------------------------------
 // The runner
 // ------------------------------------------------------------------
@@ -2048,6 +2227,8 @@ function scenario(name, body, extraPre) {
 scenario('clean install', cleanInstall);
 scenario('Casement stub present', stubPresent);
 scenario('old Casement running', oldRunning);
+scenario('old Casement running, its spot forgotten there', oldRunningFollowReset);
+scenario('old Casement running, already brought over', oldRunningAlreadyImported);
 scenario('old Casement running, Bank Tabs first', oldRunningWithBankTabs);
 scenario('old Casement running, Map Tab first beside Bank Tabs', oldRunningMapTabFirst);
 scenario('old Casement switched off', oldSwitchedOff);
@@ -2064,5 +2245,8 @@ scenario('a second character', secondCharacter);
 scenario('a character that never ran Casement', neverRanCasement);
 scenario('Casement stub switched off after the account came over', stubOffAfterImport);
 scenario('Casement stub switched off here after the account came over, no enable state', stubOffHereAfterImportNoState, 'NO_ENABLE_STATE=true\n');
+scenario('old Casement switched off by the notice, a later character', oldOffAfterImport);
+scenario('Casement stub left off by the notice, a later character', stubStoodDownAfterImport);
+scenario('Casement stub whose enable state reads 0, after the account came over', stubStateZeroAfterImport);
 
 console.log(`RESULT pass=${pass} fail=${fail}`);

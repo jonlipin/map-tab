@@ -105,18 +105,16 @@ end
 -- The world map switch, with a Reset button at the right hand end of its row that forgets the
 -- map's position and puts it back to 100 percent. It is Map Tab's only on/off switch: the saved
 -- `enabled` (Casement's master switch, which covered the bags and bank as well) and
--- `windows.worldmap` show here as one, and turning it on turns both on.
+-- `windows.worldmap` show here as one, and turning it on turns both on. It is the same switch
+-- /maptab lock and unlock flip, and does the same: switched off, the map goes back to the game but
+-- its saved position and size are kept for when it is switched on again. Only Reset forgets them.
 local function MapSwitch(layout, label, tooltip)
 	local top = layout.y
 	local cb = Check(layout, label, tooltip,
 		function() return ns.db.enabled and ns.db.windows.worldmap end,
 		function(value)
 			ns.db.windows.worldmap = value
-			if value then
-				ns.db.enabled = true
-			else
-				ns.Windows.ResetGroup("worldmap")
-			end
+			if value then ns.db.enabled = true end
 		end)
 
 	local reset = ns.Button(layout.parent, "Reset", 60, 20, function()
@@ -273,7 +271,7 @@ local function BuildMapPage(parent)
 	local layout = NewLayout(parent)
 	Header(layout, "World map")
 
-	MapSwitch(layout, "Move and resize the world map", "Map Tab's on and off switch, the one /maptab lock and /maptab unlock turn off and on. Off, Map Tab adds nothing to the map and leaves it entirely to the game: it goes back where the game puts it, at its own size, and the tab and the reveal go with it.")
+	MapSwitch(layout, "Move and resize the world map", "Map Tab's on and off switch, the one /maptab lock and /maptab unlock turn off and on. Off, Map Tab adds nothing to the map and leaves it entirely to the game: it goes back where the game puts it, at its own size, and the tab and the reveal go with it. Where you left it and the size you gave it are kept for when it is switched on again; Reset forgets them.")
 
 	Note(layout, "Everything Map Tab adds lives in a tab under the map, so nothing covers the map's own interface. Resizing scales the whole window: the grip, the buttons and the slider set the same number, and the map, its pins and its text stay in proportion. The map never goes off screen, and a maximized map is left alone.", 0, 4)
 
