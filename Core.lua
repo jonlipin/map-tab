@@ -217,8 +217,9 @@ end
 --
 -- While Casement is installed but cannot be read (the old addon switched off, say), nothing is
 -- marked done, so the map's settings still come over at the first login it can be read, and one
--- chat line per account says how to make it readable. Only a login with no Casement at all closes
--- the question for good.
+-- chat line per account says how to make it readable. The one exception is a stub the user has
+-- switched off after the account's share came over: it is left off without a word (see
+-- FindCasementData). Only a login with no Casement at all closes the question for good.
 -- ------------------------------------------------------------------
 
 local OLD = "Casement"
@@ -262,8 +263,10 @@ end
 
 -- Makes Casement's saved variables readable, if there are any. Returns how they were found, or
 -- nil, why not, whether that is for good (not installed) or worth another look at the next login,
--- and which Casement it was ("old" for the whole old addon, "stub" for the data stub).
-local function FindCasementData()
+-- which Casement it was ("old" for the whole old addon, "stub" for the data stub), and whether the
+-- reason is the user's own choice and nothing needs saying. `needAccount` says the account's share
+-- has not come over yet.
+local function FindCasementData(needAccount)
 	if type(CasementAccountDB) == "table" or type(CasementDB) == "table" then return "already in memory" end
 	local ok, name, _, _, loadable, reason = AddOnCall("GetAddOnInfo", OLD)
 	if not ok or not name or reason == "MISSING" then return nil, "not installed", true end
@@ -280,13 +283,25 @@ local function FindCasementData()
 	-- The old data stub. A load on demand addon that has not been loaded yet reports itself as not
 	-- loadable, with the reason DEMAND_LOADED, so the answer that counts is LoadAddOn's own. A stub
 	-- that is switched off (an earlier session switched the old Casement off before it was updated
-	-- to the stub, for every character or only this one) is switched back on first.
+	-- to the stub, for every character or only this one) is switched back on first, while the
+	-- account's share is still to come over. Once it has come over, a stub switched off since is
+	-- the user's doing: only this character's map settings are left, which is not worth overruling
+	-- them for, or switching it back on for every character, so it is left off and they come over
+	-- if it is switched on again. Bank Tabs treats the stub the same way, so with both installed
+	-- neither switches it back on behind the user's back.
+	local function LeftOff(who)
+		return nil, "(old data) is switched off " .. who .. " and the account's share came over at an earlier login, so it is left off", false, "stub", true
+	end
 	local switched = false
 	local off = SwitchedOff(reason)
-	if off then switched = SwitchStubOn(off) end
+	if off then
+		if not needAccount then return LeftOff(off) end
+		switched = SwitchStubOn(off)
+	end
 	local okLoad, loaded, why = AddOnCall("LoadAddOn", OLD)
 	if okLoad and not loaded and why == "DISABLED" and not switched then
 		-- Off for this character on a client that could not say so beforehand.
+		if not needAccount then return LeftOff("for this character") end
 		switched = SwitchStubOn("for this character")
 		okLoad, loaded, why = AddOnCall("LoadAddOn", OLD)
 	end
@@ -358,7 +373,7 @@ function ns.ImportCasement()
 		return
 	end
 
-	local how, why, final, kind = FindCasementData()
+	local how, why, final, kind, quiet = FindCasementData(needAccount)
 	if not how then
 		if final then
 			account.importedCasement = true
@@ -366,6 +381,8 @@ function ns.ImportCasement()
 			report["casement data"] = "nothing to bring over, Casement " .. tostring(why)
 		else
 			report["casement data"] = "not brought over yet, Casement " .. tostring(why) .. "; looked for again at the next login"
+			-- The user's own choice needs no chat line.
+			if quiet then return end
 			-- Said once per account, so the user knows why nothing came over and what to do; the
 			-- report above says it at every login.
 			if not account.casementUnreadableTold then

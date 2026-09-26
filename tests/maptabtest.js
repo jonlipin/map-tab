@@ -1947,6 +1947,63 @@ check("the account's learned areas came over too", MapTabAccountDB.overlays[12] 
 check("with the one chat line", ChatSaying("from Casement") == 1, CHAT[#CHAT])
 `;
 
+const stubOffAfterImport = String.raw`
+-- The account's share came over when another character logged in, with the stub switched on.
+-- Since then the user has switched "Casement (old data)" off in the AddOns list. This character is
+-- new to Map Tab. Only its own map settings are left to bring over, which is no reason to switch
+-- the stub back on for every character: it is left off, without a word, and this character's
+-- question stays open for if the user switches it on again. Bank Tabs does the same (its harness
+-- case E2), so with both installed neither switches the stub on behind the user's back.
+ADDONS.Casement = { title = "Casement (old data)", loadable = false, reason = "DISABLED", lod = true, onLoad = function()
+  CasementAccountDB = CasementAccount()
+  CasementDB = CasementCharacter()
+end }
+MapTabAccountDB = { importedCasement = true, overlays = {} }
+MapTabDB = nil
+
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+fire("PLAYER_LOGIN")
+check("a stub switched off after the account came over is not switched back on", #ENABLED == 0, table.concat(ENABLED, ","))
+check("nor loaded", #LOADED == 0 and CasementDB == nil, table.concat(LOADED, ","))
+check("nothing is said, at either login", ChatSaying("Casement") == 0, CHAT[#CHAT])
+check("this character's question stays open", ns.db.importedCasement == nil and MapTabAccountDB.importedCasement == true)
+check("the user is not marked as told", MapTabAccountDB.casementUnreadableTold == nil)
+check("the report says why", (ns.report["casement data"] or ""):find("switched off for every character and the account's share came over", 1, true) ~= nil,
+  ns.report["casement data"])
+check("the defaults stand meanwhile", near(ns.db.map.scale, 1.0, 0.001) and ns.db.positions.worldmap == nil)
+
+-- The user switches it on again: this character's settings come over at the next login.
+ADDONS.Casement.reason = "DEMAND_LOADED"
+fire("PLAYER_LOGIN")
+check("switched on again by the user, it is loaded", #LOADED == 1 and #ENABLED == 0, table.concat(LOADED, ","))
+check("and this character's map settings come over", near(ns.db.map.scale, 1.3, 0.001) and ns.db.positions.worldmap ~= nil
+  and ns.db.positions.worldmap.x == 250 and ns.db.importedCasement == true)
+check("still without a chat line: the account's line was the first time", ChatSaying("Casement") == 0, CHAT[#CHAT])
+`;
+
+const stubOffHereAfterImportNoState = String.raw`
+-- The same, with the stub switched off for this character only, on a client with no enable state
+-- to ask: LoadAddOn's own refusal says so, and the stub is left off rather than switched on.
+ADDONS.Casement = { title = "Casement (old data)", loadable = false, reason = "DEMAND_LOADED", lod = true, charDisabled = true, onLoad = function()
+  CasementAccountDB = CasementAccount()
+  CasementDB = CasementCharacter()
+end }
+MapTabAccountDB = { importedCasement = true, overlays = {} }
+MapTabDB = nil
+
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+check("refused as switched off here, after the account came over, the stub is left off", #ENABLED == 0 and #LOADED == 1 and CasementDB == nil,
+  table.concat(ENABLED, ",") .. "/" .. table.concat(LOADED, ","))
+check("without a word", ChatSaying("Casement") == 0, CHAT[#CHAT])
+check("and this character's question stays open", ns.db.importedCasement == nil)
+check("the report says it is off for this character", (ns.report["casement data"] or ""):find("switched off for this character and the account's share came over", 1, true) ~= nil,
+  ns.report["casement data"])
+`;
+
 // ------------------------------------------------------------------
 // The runner
 // ------------------------------------------------------------------
@@ -2005,5 +2062,7 @@ scenario('no addon list API', noAddOnApi, 'NO_ADDON_API=true\n');
 scenario('already brought over', alreadyImported);
 scenario('a second character', secondCharacter);
 scenario('a character that never ran Casement', neverRanCasement);
+scenario('Casement stub switched off after the account came over', stubOffAfterImport);
+scenario('Casement stub switched off here after the account came over, no enable state', stubOffHereAfterImportNoState, 'NO_ENABLE_STATE=true\n');
 
 console.log(`RESULT pass=${pass} fail=${fail}`);
