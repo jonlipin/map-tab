@@ -4,9 +4,8 @@ Map Tab lets you put the world map where you want it, at the size you want. Drag
 bar, size it from a small tab that hangs under it, and read your coordinates and the cursor's in
 the same tab. If you like, it also draws in the parts of the map you have not explored yet.
 
-It is made for WoW: Forever (the classic era client, build 1.60.1, Interface 16001) and works the
-moment it is installed. Every part is a switch in **Esc > Options > AddOns > Map Tab**, or
-`/maptab`.
+It is made for WoW: Forever (build 1.60.1, Interface 16001) and works the moment it is installed.
+Most parts have their own switch in **Esc > Options > AddOns > Map Tab**, or `/maptab`.
 
 - CurseForge: https://www.curseforge.com/wow/addons/map-tab
 - Bugs and ideas: https://github.com/jonlipin/map-tab/issues
@@ -24,20 +23,22 @@ windows, and every character's saved bank, bags and guild bank, are in the separ
 - Hold Alt and drag the map from anywhere on it, which helps when its top bar is busy. The key can
   be Shift, Ctrl, Alt or none.
 - A small gold handle appears in the top left corner by itself if the top bar ever has no room to
-  grab, and can be switched on for good.
-- It never goes off screen. It is clamped while you drag it, when the position is saved, and again
-  if you change your resolution or UI scale.
+  grab, or if top bar dragging is switched off, and can be switched on for good.
+- It is kept on screen: clamped while you drag it, when the position is saved, and again if you
+  change your resolution or UI scale. (A map sized taller than the screen is the one exception; see
+  Known limits.)
 - It stays exactly where you left it when the quest log opens or closes, and the game showing the
   map again does not undo your placing. Where you leave it and its size are remembered per
   character.
 
 **Size it from the tab**
 
-- Everything Map Tab adds lives in a tab under the map, in the game's own panel art, so nothing is
-  laid over the map's interface: minus, the current size, plus, a reset button and a resize grip
-  (the same grabber the chat windows use).
-- Plus and minus move in 10 percent steps (5 to 25 in the options) and always land on a round
-  multiple of the step, so repeated clicks walk 90, 100, 110 even if a drag left you on 97.
+- The sizing controls live in a tab under the map, in the game's own panel art, so nothing covers
+  the game's own buttons: minus, the current size, plus, a reset button and a resize grip (the same
+  grabber the chat windows use).
+- Plus and minus move in 10 percent steps (5 to 25 in the options) and land on a multiple of the
+  step, so repeated clicks walk 90, 100, 110 even if a drag left you on 97. The ends of the range,
+  50 and 200 percent, are the exception with some step sizes.
 - Drag the grip for any size from 50 to 200 percent. Hold Shift while dragging to snap to the step.
   Double-click the grip for 100 percent.
 - The whole map scales rather than stretching: the pins, the zone art and the text keep their
@@ -47,7 +48,8 @@ windows, and every character's saved bank, bags and guild bank, are in the separ
 **Coordinates**
 
 - Your position and, on a second line, where the cursor is pointing on the map, at the left end of
-  the tab, as hundredths of the map the way every coordinate addon prints them: `You 45.2, 67.8`.
+  the tab, as hundredths of the map the way every coordinate addon prints them, for example You
+  45.2, 67.8.
 - Click the button next to them and your position goes into the chat box, zone name first, ready
   to send: `The Barrens 45.2, 67.8`. If you are already typing a chat line, it goes into that.
   Right-click the button for a box to copy the text out of with Ctrl+C.
@@ -59,8 +61,8 @@ windows, and every character's saved bank, bags and guild bank, are in the separ
 - Tinted blue, sepia or grey so you can still tell them from the parts you have been to, or not
   tinted at all.
 - The areas of every map in this build ship with the addon (84 maps, generated from the client's
-  own map tables), and anything any character on your account explores is remembered on top of
-  that, so an area a patch adds is picked up as soon as one of your characters explores it.
+  own map tables). An area missing from that list is learned when a character who has explored it
+  opens the map there with the reveal switched on.
   `/maptab mapdata` says how much of the open map is known.
 
 ## Install
@@ -96,7 +98,7 @@ There is no minimap button.
 | `/maptab reset` | Puts the map back where the game had it, at 100 percent |
 | `/maptab lock` / `unlock` | Turns the world map switch off or on, as the options switch does; locked, the map is the game's again, and its saved place and size wait for the unlock |
 | `/maptab coords` | Puts your coordinates in a box to copy |
-| `/maptab mapdata` | Reports how much of the shown map the reveal knows; `dump` opens all of it |
+| `/maptab mapdata` | Reports how much of the shown map the reveal knows; `dump` opens every area learned on this account, to copy out |
 | `/maptab grips` | Outlines the parts of the map you can drag (again to stop) |
 | `/maptab debug` | Prints what resolved on this client |
 
@@ -155,10 +157,13 @@ only ever puts back its own windows.
 
 ## Known limits
 
-- Made for WoW: Forever (build 1.60.1). The shipped map areas are for this build; an area added by
-  a later patch is drawn once any of your characters has explored it.
-- A maximized map is left alone. Moving, sizing and the tab work on the windowed map.
-- Where the game does not give your position, your line shows `You --`.
+- Made for WoW: Forever (build 1.60.1). The shipped map areas are for this build.
+- While the map is maximized, sizing and the tab are paused. Moving still works.
+- At sizes where the map is taller than your screen, the tab can end up above the top of the
+  screen. `/maptab reset`, `/maptab scale 100` or the size slider in the options brings it back.
+- Locking the map (`/maptab lock` or the options switch) turns the tab, the coordinates and the
+  reveal off with it until you unlock.
+- Where the game does not give your position, your line shows two dashes instead of numbers.
 
 ## If something does not work
 
@@ -186,7 +191,7 @@ way Casement's data can be waiting at the first login runs in a fresh Lua state 
 ```
 node tests/maptabtest.js              # 457 checks
 node tests/maptabtest.js --bare       # every UI template missing (457 checks)
-node tests/maptabtest.js --noenum     # no Enum.BagIndex (457 checks)
+node tests/maptabtest.js --noenum     # proves Map Tab never reads the bag enums (457 checks)
 node tests/maptabtest.js --verbose    # also prints the addon's chat output
 ```
 
