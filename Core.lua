@@ -192,9 +192,17 @@ end
 -- The data is found in one of two places: the old Casement itself, if it is still installed and
 -- running, or the small "Casement (old data)" stub Bank Tabs ships in Casement's place, which holds
 -- nothing but the saved variables and is loaded on demand here so they can be read.
+--
+-- While Casement is installed but cannot be read (the old addon switched off, say), nothing is
+-- marked done, so the map's settings still come over at the first login it can be read. Only a
+-- login with no Casement at all closes the question for good.
 -- ------------------------------------------------------------------
 
 local OLD = "Casement"
+
+-- Set by whichever of Map Tab and Bank Tabs tells the user about the old Casement first, so the
+-- other does not say it again this session. Both addons use this one name.
+local NOTICE = "CASEMENT_REPLACED_NOTICE"
 
 -- Calls an addon list function by whichever name this client has it under, never erroring.
 local function AddOnCall(name, ...)
@@ -203,24 +211,33 @@ local function AddOnCall(name, ...)
 	return pcall(fn, ...)
 end
 
--- Whether an addon called Casement is installed and could be loaded right now.
+-- Whether an addon called Casement is installed and could be loaded right now. The second answer
+-- says why not, and the third whether that is for good (not installed) or worth another look at
+-- the next login.
 local function CasementLoadable()
 	local ok, name, _, _, loadable, reason = AddOnCall("GetAddOnInfo", OLD)
-	if not ok then return false, "not installed" end
-	if not name or reason == "MISSING" then return false, "not installed" end
-	if not loadable then return false, "installed but " .. string.lower(tostring(reason or "not loadable")) end
-	return true
+	if not ok or not name or reason == "MISSING" then return false, "not installed", true end
+	if loadable then return true end
+	-- The old data stub runs no code, so a stub that is switched off (an earlier session switched
+	-- the old Casement off before it was updated to the stub) is safely switched back on to be
+	-- read. The old addon itself is never switched on here: its code would run.
+	local okLod, lod = AddOnCall("IsAddOnLoadOnDemand", OLD)
+	if reason == "DISABLED" and okLod and lod and AddOnCall("EnableAddOn", OLD) then
+		report["casement data stub"] = "was switched off, switched back on to be read"
+		return true
+	end
+	return false, "installed but " .. string.lower(tostring(reason or "not loadable")), false
 end
 
 -- Makes Casement's saved variables readable, if there are any. Returns how they were found, or
--- nil and why not.
+-- nil, why not, and whether that is for good.
 local function FindCasementData()
 	if type(CasementAccountDB) == "table" or type(CasementDB) == "table" then return "already in memory" end
-	local loadable, why = CasementLoadable()
-	if not loadable then return nil, why end
+	local loadable, why, final = CasementLoadable()
+	if not loadable then return nil, why, final end
 	local ok, loaded, reason = AddOnCall("LoadAddOn", OLD)
-	if not (ok and loaded) then return nil, "could not be loaded (" .. tostring(reason or loaded) .. ")" end
-	if type(CasementAccountDB) ~= "table" and type(CasementDB) ~= "table" then return nil, "loaded, but it holds no saved data" end
+	if not (ok and loaded) then return nil, "could not be loaded (" .. tostring(reason or loaded) .. ")", false end
+	if type(CasementAccountDB) ~= "table" and type(CasementDB) ~= "table" then return nil, "was loaded, but it holds no saved data", true end
 	return "loaded on demand"
 end
 
@@ -281,28 +298,33 @@ function ns.ImportCasement()
 		return
 	end
 
-	local how, why = FindCasementData()
+	local how, why, final = FindCasementData()
+	if not how then
+		if final then
+			account.importedCasement = true
+			db.importedCasement = true
+			report["casement data"] = "nothing to bring over, Casement " .. tostring(why)
+		else
+			report["casement data"] = "not brought over yet, Casement " .. tostring(why) .. "; looked for again at the next login"
+		end
+		return
+	end
+
 	local settings, overlays, from = 0, 0, nil
-	if how then
-		local old = type(CasementAccountDB) == "table" and CasementAccountDB or nil
-		if needAccount and old then overlays = ImportOverlays(old.overlays) end
-		if needCharacter then
-			if type(CasementDB) == "table" and next(CasementDB) ~= nil then
-				settings, from = ImportSettings(CasementDB, true), "this character"
-			elseif old and type(old.profile) == "table" then
-				-- A character that never ran Casement gets what Casement itself would have given it:
-				-- the account copy of the settings, without anyone else's map position.
-				settings, from = ImportSettings(old.profile, false), "the account copy"
-			end
+	local old = type(CasementAccountDB) == "table" and CasementAccountDB or nil
+	if needAccount and old then overlays = ImportOverlays(old.overlays) end
+	if needCharacter then
+		if type(CasementDB) == "table" and next(CasementDB) ~= nil then
+			settings, from = ImportSettings(CasementDB, true), "this character"
+		elseif old and type(old.profile) == "table" then
+			-- A character that never ran Casement gets what Casement itself would have given it:
+			-- the account copy of the settings, without anyone else's map position.
+			settings, from = ImportSettings(old.profile, false), "the account copy"
 		end
 	end
 	account.importedCasement = true
 	db.importedCasement = true
 
-	if not how then
-		report["casement data"] = "nothing to bring over, Casement " .. tostring(why)
-		return
-	end
 	report["casement data"] = "brought over (" .. how .. "): " .. settings .. " settings from " .. tostring(from or "nowhere")
 		.. ", " .. overlays .. " learned map areas" .. (needAccount and "" or " (the account's share came over earlier)")
 	MirrorToAccount()
@@ -315,30 +337,24 @@ end
 
 -- The old, whole Casement still installed and running beside this addon: it would handle the
 -- world map as well, so it is switched off for the next session and the user is told once. Bank
--- Tabs, the other half, says the same thing, so only one of the two says it: Map Tab leaves it to
--- Bank Tabs whenever that is loaded, and otherwise marks it said for anyone who comes after.
+-- Tabs, the other half, does the same, so whichever of the two reaches PLAYER_LOGIN first switches
+-- it off, tells the user and sets the shared mark; the other finds the mark and stays quiet.
 local function RetireOldCasement()
 	if type(_G.CasementFrame) ~= "table" then
 		report["old casement"] = "not running"
 		return
 	end
-	local disabled = AddOnCall("DisableAddOn", OLD)
-	local off = disabled and "switched off from the next session" or "could not be switched off here, turn it off in the addon list"
-
-	local bankTabs = type(_G.BankTabsFrame) == "table"
-	if not bankTabs then
-		local ok, loaded = AddOnCall("IsAddOnLoaded", "BankTabs")
-		bankTabs = ok and loaded and true or false
-	end
-	if bankTabs or _G.CasementReplacedNotice then
-		report["old casement"] = "running, " .. off .. "; " .. (bankTabs and "Bank Tabs tells the user" or "the user was already told")
+	if _G[NOTICE] then
+		report["old casement"] = "running this session; " .. tostring(_G[NOTICE]) .. " already switched it off and told the user"
 		return
 	end
-	_G.CasementReplacedNotice = "Map Tab"
-	Print("Casement is now two addons, Bank Tabs and Map Tab, so the old Casement is "
-		.. (disabled and "switched off from your next login. Type /reload to finish the switch now."
-			or "still on: turn it off in the addon list so it stops handling the world map beside Map Tab."))
-	report["old casement"] = "running, " .. off .. "; told the user"
+	_G[NOTICE] = ADDON
+	local disabled = AddOnCall("DisableAddOn", OLD)
+	if disabled then AddOnCall("SaveAddOns") end
+	Print("Casement has been replaced by two addons: Bank Tabs (the bags, bank and saved banks) and Map Tab (the world map tab, coordinates and fog reveal)."
+		.. (disabled and " The old Casement is switched off from your next login; type /reload to finish the switch now."
+			or " Please switch the old Casement off in the AddOns list, so it stops handling the world map beside Map Tab."))
+	report["old casement"] = "was running, " .. (disabled and "switched off from the next session" or "could not be switched off") .. "; told the user"
 end
 
 -- ------------------------------------------------------------------

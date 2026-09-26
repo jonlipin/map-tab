@@ -62,9 +62,11 @@ learned for the account. Anything you have already changed in Map Tab is kept, a
 saved data is left as it was. One chat line says what came over.
 
 The data is read from the old Casement if it is still installed and running, or from the small
-"Casement (old data)" folder that Bank Tabs leaves in Casement's place. If the old, whole Casement
-is still running, it is switched off from your next login so it stops handling the map beside Map
-Tab; type `/reload` to finish the switch at once.
+"Casement (old data)" folder that Bank Tabs leaves in Casement's place. If the old Casement is
+installed but switched off, its settings come over at the first login it is switched on. If the
+old, whole Casement is still running, it is switched off from your next login so it stops handling
+the map beside Map Tab, and one line in chat says so (Bank Tabs does the same, and only one of the
+two says it); type `/reload` to finish the switch at once.
 
 Map Tab works on its own, and beside Bank Tabs: both follow the game's panel positioning, and each
 only ever puts back its own windows.
@@ -104,7 +106,7 @@ second move engine on the same panel hooks to prove the two leave each other's w
 way Casement's data can be waiting at the first login runs in a fresh Lua state of its own.
 
 ```
-node tests/maptabtest.js              # 309 checks
+node tests/maptabtest.js              # 322 checks
 node tests/maptabtest.js --bare       # every UI template missing
 node tests/maptabtest.js --noenum     # no Enum.BagIndex
 ```

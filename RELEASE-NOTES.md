@@ -26,12 +26,13 @@ character (the first time that character logs in), and the map areas the reveal 
 the account. It is read from the old Casement if that is still running, or from the small
 "Casement (old data)" folder Bank Tabs leaves in Casement's place, which Map Tab loads just long
 enough to read it. Anything already changed in Map Tab is kept, Casement's own saved data is left
-as it was, and one chat line says what came over. With no Casement anywhere, Map Tab simply starts
-from its defaults.
+as it was, and one chat line says what came over. If the old Casement is installed but switched
+off, its settings come over at the first login it is switched on. With no Casement anywhere, Map
+Tab simply starts from its defaults.
 
 **The old Casement steps aside.** If the old, whole Casement is still installed and running, Map
-Tab switches it off from the next login and says so once in chat (when Bank Tabs is installed too,
-Bank Tabs says it instead), so the two stop handling the world map at the same time. Type /reload
+Tab switches it off from the next login and says so once in chat, so the two stop handling the
+world map at the same time. Bank Tabs does the same, and only one of the two says it. Type /reload
 to finish the switch at once.
 
 **What changed from Casement**
@@ -45,11 +46,11 @@ to finish the switch at once.
   only ever puts back its own windows, so neither moves the other's.
 
 **Offline harness.** `tests/maptabtest.js` carries every world map check from Casement's harness,
-and adds the data carry-over (the old data stub, the old Casement running, the old Casement beside
-Bank Tabs, nothing installed, no addon list API, already brought over, a second character, a
-character that never ran Casement), Map Tab loading alone with only its own global names, and a
-second move engine hooked into the same panel functions. 309 checks in normal, bare and no-enum
-modes alike.
+and adds the data carry-over (the old data stub, switched on or off, the old Casement running,
+switched off, or already told off by Bank Tabs, nothing installed, no addon list API, already
+brought over, a second character, a character that never ran Casement), Map Tab loading alone with
+only its own global names, and a second move engine hooked into the same panel functions. 322
+checks in normal, bare and no-enum modes alike.
 
 The world map's history before the split, Casement 1.0.0 to 1.2.3, is in the changelog of the
 Casement repository, which is now Bank Tabs.

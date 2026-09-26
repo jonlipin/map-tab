@@ -290,7 +290,8 @@ end
 -- The addon list. Nothing but Map Tab is installed unless a scenario says so. LoadAddOn reads an
 -- addon's saved variables and fires ADDON_LOADED, which is all a stub with no code does.
 ADDONS = {}
-LOADED, DISABLED = {}, {}
+LOADED, DISABLED, ENABLED = {}, {}, {}
+SAVED_ADDONS = 0
 ADDON_INFO_ERRORS = ADDON_INFO_ERRORS or false
 C_AddOns = {
   GetAddOnInfo = function(name)
@@ -315,7 +316,15 @@ C_AddOns = {
     if MapTabFrame then MapTabFrame.scripts.OnEvent(MapTabFrame, "ADDON_LOADED", name) end
     return true
   end,
+  IsAddOnLoadOnDemand = function(name) return ADDONS[name] ~= nil and ADDONS[name].lod == true end,
   DisableAddOn = function(name) DISABLED[#DISABLED + 1] = name if ADDONS[name] then ADDONS[name].enabled = false end end,
+  -- Switching an addon on takes effect at once for LoadAddOn, as it does in the client.
+  EnableAddOn = function(name)
+    ENABLED[#ENABLED + 1] = name
+    local a = ADDONS[name]
+    if a and a.reason == "DISABLED" then a.loadable, a.reason = true, nil end
+  end,
+  SaveAddOns = function() SAVED_ADDONS = SAVED_ADDONS + 1 end,
 }
 if NO_ADDON_API then C_AddOns = nil end
 
@@ -1544,46 +1553,84 @@ check("its world map settings came over", near(ns.db.map.scale, 1.3, 0.001) and 
 check("its learned map areas came over", MapTabAccountDB.overlays[12] and MapTabAccountDB.overlays[12]["10:10:0:0"] == "7")
 check("the report says the data was in memory", (ns.report["casement data"] or ""):find("already in memory", 1, true) ~= nil, ns.report["casement data"])
 check("the old Casement is switched off for the next session", #DISABLED == 1 and DISABLED[1] == "Casement", table.concat(DISABLED, ","))
-check("the user is told once", ChatSaying("two addons, Bank Tabs and Map Tab") == 1, CHAT[#CHAT])
+check("and the addon list is saved straight away", SAVED_ADDONS == 1, SAVED_ADDONS)
+check("the old addon is never switched back on", #ENABLED == 0)
+check("the user is told once, naming both halves", ChatSaying("Casement has been replaced by two addons: Bank Tabs") == 1, CHAT[#CHAT])
 check("with how to finish the switch now", ChatSaying("/reload") == 1)
 check("the import has its own line as well", ChatSaying("from Casement") == 1)
-check("the telling is marked done for Bank Tabs to see", CasementReplacedNotice == "Map Tab")
+check("the shared mark is set, so Bank Tabs coming second stays quiet", CASEMENT_REPLACED_NOTICE == "MapTab", CASEMENT_REPLACED_NOTICE)
 check("and recorded in the report", (ns.report["old casement"] or ""):find("told the user", 1, true) ~= nil, ns.report["old casement"])
 check("nothing failed", #ReportFailures() == 0, ReportFailures()[1])
-local foreign = ForeignGlobals({ CasementReplacedNotice = true })
+local foreign = ForeignGlobals({ CASEMENT_REPLACED_NOTICE = true })
 check("besides the shared notice mark, only Map Tab's names were added", #foreign == 0, table.concat(foreign, ", "))
 `;
 
 const oldRunningWithBankTabs = String.raw`
--- The old Casement is running, and so is Bank Tabs, which tells the user itself. Map Tab must stay
--- quiet about it, whichever of the two reached PLAYER_LOGIN first, but still switch it off and
--- still bring its own half over.
+-- The old Casement is running, and so is Bank Tabs, which reached PLAYER_LOGIN first: it has
+-- switched the old addon off, told the user and set the shared mark. Map Tab must stay quiet and
+-- not switch it off a second time, but still bring its own half over.
 ADDONS.Casement = { title = "Casement", loadable = true, lod = false, loaded = true }
 ADDONS.BankTabs = { title = "Bank Tabs", loadable = true, lod = false, loaded = true }
 CasementFrame = CreateFrame("Frame", "CasementFrame", UIParent)
 BankTabsFrame = CreateFrame("Frame", "BankTabsFrame", UIParent)
 CasementAccountDB = CasementAccount()
 CasementDB = CasementCharacter()
+CASEMENT_REPLACED_NOTICE = "BankTabs"
+DISABLED[1] = "Casement"
 
 local ns = LoadMapTab()
 fire("ADDON_LOADED", "MapTab")
 fire("PLAYER_LOGIN")
-check("Map Tab leaves the telling to Bank Tabs", ChatSaying("two addons") == 0 and CasementReplacedNotice == nil)
-check("the report says who tells the user", (ns.report["old casement"] or ""):find("Bank Tabs tells the user", 1, true) ~= nil, ns.report["old casement"])
-check("the old addon is still switched off", #DISABLED == 1 and DISABLED[1] == "Casement")
-check("and Map Tab's half still came over", near(ns.db.map.scale, 1.3, 0.001))
-check("nothing of Bank Tabs' was touched", BankTabsFrame.scripts.OnEvent == nil and MapTabAccountDB.vault == nil)
+check("with the mark already set, Map Tab says nothing about the old addon", ChatSaying("two addons") == 0, CHAT[#CHAT])
+check("and leaves the mark as Bank Tabs set it", CASEMENT_REPLACED_NOTICE == "BankTabs")
+check("nor switches it off a second time", #DISABLED == 1 and SAVED_ADDONS == 0, #DISABLED)
+check("the report says who did", (ns.report["old casement"] or ""):find("BankTabs already switched it off", 1, true) ~= nil, ns.report["old casement"])
+check("Map Tab's half still came over", near(ns.db.map.scale, 1.3, 0.001) and ns.db.positions.worldmap and ns.db.positions.worldmap.x == 250)
+check("with Map Tab's own one line", ChatSaying("from Casement") == 1, CHAT[#CHAT])
+check("nothing of Bank Tabs' half was taken", MapTabAccountDB.vault == nil and ns.db.positions.bank == nil)
+`;
 
--- A later session where Bank Tabs is not loaded but someone already told the user.
-CHAT = {}
-DISABLED = {}
-BankTabsFrame = nil
-ADDONS.BankTabs = nil
-CasementReplacedNotice = "Bank Tabs"
-ns.db.importedCasement = nil
+const oldSwitchedOff = String.raw`
+-- The old, whole Casement is installed but switched off, so its files cannot be read without
+-- running its code. Nothing is marked done: the settings come over at the first login it runs.
+ADDONS.Casement = { title = "Casement", loadable = false, reason = "DISABLED", lod = false }
+
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
 fire("PLAYER_LOGIN")
-check("once the user has been told, Map Tab does not say it again", ChatSaying("two addons") == 0)
-check("and the report says so", (ns.report["old casement"] or ""):find("already told", 1, true) ~= nil, ns.report["old casement"])
+check("the old addon switched off is neither switched on nor loaded", #ENABLED == 0 and #LOADED == 0, table.concat(ENABLED, ",") .. "/" .. table.concat(LOADED, ","))
+check("nothing is marked done while it cannot be read", MapTabAccountDB.importedCasement == nil and ns.db.importedCasement == nil)
+check("the report says it will look again", (ns.report["casement data"] or ""):find("looked for again at the next login", 1, true) ~= nil, ns.report["casement data"])
+check("no chat line", ChatSaying("Casement") == 0, CHAT[#CHAT])
+
+-- The user switches it on for one login: its code runs, and everything happens then.
+ADDONS.Casement = { title = "Casement", loadable = true, lod = false, loaded = true }
+CasementFrame = CreateFrame("Frame", "CasementFrame", UIParent)
+CasementAccountDB = CasementAccount()
+CasementDB = CasementCharacter()
+fire("PLAYER_LOGIN")
+check("at the login it runs, the map's settings come over", near(ns.db.map.scale, 1.3, 0.001) and MapTabAccountDB.importedCasement == true
+  and ns.db.importedCasement == true)
+check("and it is switched off again, with the one notice", #DISABLED == 1 and ChatSaying("two addons") == 1)
+`;
+
+const stubSwitchedOff = String.raw`
+-- The data stub is there but switched off: an earlier session switched the old Casement off
+-- before it was updated to the stub, and the switch stayed with the folder. The stub runs no code,
+-- so it is switched back on and read.
+ADDONS.Casement = { title = "Casement (old data)", loadable = false, reason = "DISABLED", lod = true, onLoad = function()
+  CasementAccountDB = CasementAccount()
+  CasementDB = CasementCharacter()
+end }
+
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+check("a switched off data stub is switched on to be read", #ENABLED == 1 and ENABLED[1] == "Casement", table.concat(ENABLED, ","))
+check("then loaded on demand", #LOADED == 1 and LOADED[1] == "Casement")
+check("and the map's settings came over", near(ns.db.map.scale, 1.3, 0.001) and MapTabAccountDB.importedCasement == true)
+check("the report says it was switched on", (ns.report["casement data stub"] or ""):find("switched back on", 1, true) ~= nil, ns.report["casement data stub"])
+check("the stub is not the old addon, so no notice", ChatSaying("two addons") == 0 and #DISABLED == 0)
 `;
 
 const nothingPresent = String.raw`
@@ -1730,7 +1777,9 @@ function scenario(name, body, extraPre) {
 scenario('clean install', cleanInstall);
 scenario('Casement stub present', stubPresent);
 scenario('old Casement running', oldRunning);
-scenario('old Casement running beside Bank Tabs', oldRunningWithBankTabs);
+scenario('old Casement running, Bank Tabs first', oldRunningWithBankTabs);
+scenario('old Casement switched off', oldSwitchedOff);
+scenario('Casement stub switched off', stubSwitchedOff);
 scenario('nothing present', nothingPresent);
 scenario('no addon list API', noAddOnApi, 'NO_ADDON_API=true\n');
 scenario('already brought over', alreadyImported);
