@@ -121,7 +121,7 @@ second move engine on the same panel hooks to prove the two leave each other's w
 way Casement's data can be waiting at the first login runs in a fresh Lua state of its own.
 
 ```
-node tests/maptabtest.js              # 449 checks
+node tests/maptabtest.js              # 457 checks
 node tests/maptabtest.js --bare       # every UI template missing
 node tests/maptabtest.js --noenum     # no Enum.BagIndex
 ```

@@ -41,7 +41,8 @@ or that nothing needed to. If the old Casement is installed but switched off, it
 over at the first login it can be read, and one chat line, once per account, says how: update
 Casement in the CurseForge app, where it is now Bank Tabs, or switch the old Casement on for one
 login. Once the account's share has come over, a later character says nothing more about it. With
-no Casement anywhere, Map Tab simply starts from its defaults.
+no Casement anywhere, Map Tab starts from its defaults and looks again at each login, so the
+settings of a Casement that turns up later, say with Bank Tabs installed afterwards, still come over.
 
 **The old Casement steps aside.** If the old, whole Casement is still installed and running, Map
 Tab switches it off from the next login and says so once in chat. Bank Tabs does the same, and
@@ -76,7 +77,7 @@ before a later character, or already told off by Bank Tabs; nothing installed, n
 already brought over, a second character, a character that never ran Casement), Map Tab loading
 alone with only its own global names, a second move engine hooked into the same panel functions,
 and a locked map staying the game's through the quest log and a UI scale change, whichever way it
-was switched off. 449 checks in normal, bare and no-enum modes alike.
+was switched off. 457 checks in normal, bare and no-enum modes alike.
 
 The world map's history before the split, Casement 1.0.0 to 1.2.3, is in the changelog of the
 Casement repository, which is now Bank Tabs.

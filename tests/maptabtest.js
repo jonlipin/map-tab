@@ -667,8 +667,8 @@ do -- scope: 1c. The first login on a clean install: no Casement anywhere
   fire("PLAYER_LOGIN")
   check("with no Casement anywhere, nothing is loaded on demand", #LOADED == 0, #LOADED)
   check("the report says there was nothing to bring over", (ns.report["casement data"] or ""):find("^nothing to bring over") ~= nil, ns.report["casement data"])
-  check("the account is marked done so it is not looked for again", MapTabAccountDB.importedCasement == true)
-  check("and so is this character", ns.db.importedCasement == true)
+  check("the account notes there was nothing, to look again at the next login", MapTabAccountDB.importedCasement == "none")
+  check("and so does this character", ns.db.importedCasement == "none")
   check("no chat line about Casement on a clean install", ChatSaying("Casement") == 0, CHAT[#CHAT])
   check("no old Casement is running", ns.report["old casement"] == "not running", ns.report["old casement"])
   check("nothing was switched off", #DISABLED == 0)
@@ -1532,7 +1532,7 @@ local learned = MapTabAccountDB.overlays and MapTabAccountDB.overlays[5] and Map
 ns.ResetToDefaults()
 check("a reset keeps the learned map areas", learned == "401" and MapTabAccountDB.overlays[5]["64:64:900:600"] == "401")
 check("a reset puts the settings back", near(ns.db.map.scale, 1.0, 0.001))
-check("a reset does not let Casement's settings in again", ns.db.importedCasement == true)
+check("a reset keeps the note about Casement as it was", ns.db.importedCasement == "none")
 end -- scope
 
 -- ------------------------------------------------------------------
@@ -1938,13 +1938,39 @@ check("an addon list that errors on an unknown name is taken in its stride", (ns
   ns.report["casement data"])
 check("nothing is loaded", #LOADED == 0)
 check("nothing is switched off", #DISABLED == 0)
-check("the account and this character are marked done", MapTabAccountDB.importedCasement == true and ns.db.importedCasement == true)
+check("the account and this character note there was nothing, to look again", MapTabAccountDB.importedCasement == "none" and ns.db.importedCasement == "none")
 check("no chat line about Casement", ChatSaying("Casement") == 0)
 check("the defaults stand", near(ns.db.map.scale, 1.0, 0.001) and ns.db.positions.worldmap == nil)
 WorldMapFrame:Show()
 RunTimers(1)
 check("the map tab is built as usual", MapTabTab ~= nil and MapTabTab.shown == true)
 check("nothing failed", #ReportFailures() == 0 and #TIMER_ERRORS == 0, ReportFailures()[1] or TIMER_ERRORS[1])
+`;
+
+const stubTurnsUpLater = String.raw`
+-- Map Tab was installed first, on an account with no Casement anywhere. Later Bank Tabs arrives
+-- and brings the "old data" stub with it (the author's old Casement files were still in WTF). The
+-- clean login must not have closed the question: the next login finds the stub and brings the
+-- map's settings over, once.
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+check("the clean login loads nothing and says nothing", #LOADED == 0 and ChatSaying("Casement") == 0, table.concat(LOADED, ","))
+check("and only notes there was nothing", MapTabAccountDB.importedCasement == "none" and ns.db.importedCasement == "none")
+
+ADDONS.Casement = { title = "Casement (old data)", loadable = false, lod = true, reason = "DEMAND_LOADED", onLoad = function()
+  CasementAccountDB = CasementAccount()
+  CasementDB = CasementCharacter()
+end }
+fire("PLAYER_LOGIN")
+check("at the next login the stub that turned up is loaded, once", #LOADED == 1 and LOADED[1] == "Casement", table.concat(LOADED, ","))
+check("and the map's settings come over", near(ns.db.map.scale, 1.3, 0.001) and ns.db.positions.worldmap ~= nil
+  and ns.db.positions.worldmap.x == 250)
+check("with the learned areas", MapTabAccountDB.overlays[12] and MapTabAccountDB.overlays[12]["10:10:0:0"] == "7")
+check("now both are marked done", MapTabAccountDB.importedCasement == true and ns.db.importedCasement == true)
+check("with one chat line", ChatSaying("from Casement") == 1, CHAT[#CHAT])
+fire("PLAYER_LOGIN")
+check("a third login loads nothing more", #LOADED == 1, table.concat(LOADED, ","))
 `;
 
 const noAddOnApi = String.raw`
@@ -2239,6 +2265,7 @@ scenario('Casement stub the game will not load', stubRefused);
 scenario('Casement stub with nothing new in it', stubNothingNew);
 scenario('Casement stub reported loadable', stubReportedLoadable);
 scenario('nothing present', nothingPresent);
+scenario('no Casement, then the stub turns up', stubTurnsUpLater);
 scenario('no addon list API', noAddOnApi, 'NO_ADDON_API=true\n');
 scenario('already brought over', alreadyImported);
 scenario('a second character', secondCharacter);

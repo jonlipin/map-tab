@@ -219,8 +219,9 @@ end
 -- marked done, so the map's settings still come over at the first login it can be read, and one
 -- chat line per account says how to make it readable. Once the account's share has come over,
 -- nothing more is said: a stub the user has switched off since is left off, and the old addon
--- switched off is left to the notice that switched it off (see FindCasementData). Only a login
--- with no Casement at all closes the question for good.
+-- switched off is left to the notice that switched it off (see FindCasementData). A login with no
+-- Casement at all notes that and looks again at the next one, as Bank Tabs does, so data that
+-- turns up later still comes over; only bringing it over closes the question for good.
 --
 -- In the session the old Casement still runs, it keeps the map, so the map's share is read once
 -- more at logout, and what the user changed on the map in the old addon comes over as well.
@@ -268,7 +269,8 @@ local function SwitchStubOn(who)
 end
 
 -- Makes Casement's saved variables readable, if there are any. Returns how they were found, or
--- nil, why not, whether that is for good (not installed) or worth another look at the next login,
+-- nil, why not, whether that is because nothing is installed (noted as "none" and looked for again
+-- at the next login) or a Casement that cannot be read yet,
 -- which Casement it was ("old" for the whole old addon, "stub" for the data stub), and whether
 -- nothing needs saying (the user's own choice, or already told). `needAccount` says the account's
 -- share has not come over yet; `stoodDown` says the old Casement was switched off by the notice
@@ -452,8 +454,11 @@ end
 
 function ns.ImportCasement()
 	local account, db = MapTabAccountDB, ns.db
-	local needAccount = not account.importedCasement
-	local needCharacter = not db.importedCasement
+	-- Each flag is true once brought over. A login that finds no Casement at all sets "none"
+	-- instead, and every login looks again, so data that turns up later (Bank Tabs installed after
+	-- Map Tab brings the "old data" stub with it, or an old folder put back) still comes over.
+	local needAccount = account.importedCasement ~= true
+	local needCharacter = db.importedCasement ~= true
 	if not needAccount and not needCharacter then
 		report["casement data"] = "already brought over"
 		return
@@ -462,9 +467,9 @@ function ns.ImportCasement()
 	local how, why, final, kind, quiet = FindCasementData(needAccount, account.casementStoodDown)
 	if not how then
 		if final then
-			account.importedCasement = true
-			db.importedCasement = true
-			report["casement data"] = "nothing to bring over, Casement " .. tostring(why)
+			if account.importedCasement ~= true then account.importedCasement = "none" end
+			if db.importedCasement ~= true then db.importedCasement = "none" end
+			report["casement data"] = "nothing to bring over, Casement " .. tostring(why) .. " (looked for again at each login)"
 		else
 			report["casement data"] = "not brought over yet, Casement " .. tostring(why) .. "; looked for again at the next login"
 			-- The user's own choice needs no chat line.

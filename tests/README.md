@@ -9,9 +9,9 @@ map is scaled, and putting the map back after the game has re-anchored it.
 node tests/maptabtest.js [addon dir] [--bare] [--verbose] [--noenum]
 ```
 
-- no flags: 449 checks against the normal client
-- `--bare`: every UI template is missing, so every fallback path runs (449 checks)
-- `--noenum`: no `Enum.BagIndex`, which Map Tab never reads (449 checks)
+- no flags: 457 checks against the normal client
+- `--bare`: every UI template is missing, so every fallback path runs (457 checks)
+- `--noenum`: no `Enum.BagIndex`, which Map Tab never reads (457 checks)
 - `--verbose`: prints everything the addon puts in the chat frame, and each scenario's tally
 
 The addon directory defaults to the repository the script sits in.
@@ -59,6 +59,8 @@ Each scenario runs in a fresh Lua state:
 - the data stub the game refuses to load: tried again at every login, one chat line per account;
 - the data stub holding nothing new: the first import still says so in one line;
 - nothing installed, on a client whose addon list errors on an unknown name;
+- nothing installed at first, then the data stub turns up (Bank Tabs installed afterwards): the
+  clean login only notes "none", and the next login brings the map's share over, once;
 - no addon list API at all;
 - already brought over at an earlier login;
 - a second character, whose own Casement settings replace the account copy it adopted, except
