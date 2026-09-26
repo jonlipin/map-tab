@@ -203,7 +203,7 @@ end
 -- Draws every known overlay the game is NOT already drawing for the shown map.
 function Reveal.Refresh(force)
 	local db = ns.db
-	if not (db and db.enabled and db.windows.worldmap and db.map.reveal) then
+	if not (db and ns.MapOn() and db.map.reveal) then
 		Clear()
 		return
 	end

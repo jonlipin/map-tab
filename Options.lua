@@ -103,14 +103,20 @@ local function Check(layout, label, tooltip, get, set, indent)
 end
 
 -- The world map switch, with a Reset button at the right hand end of its row that forgets the
--- map's position and puts it back to 100 percent.
+-- map's position and puts it back to 100 percent. It is Map Tab's only on/off switch: the saved
+-- `enabled` (Casement's master switch, which covered the bags and bank as well) and
+-- `windows.worldmap` show here as one, and turning it on turns both on.
 local function MapSwitch(layout, label, tooltip)
 	local top = layout.y
 	local cb = Check(layout, label, tooltip,
-		function() return ns.db.windows.worldmap end,
+		function() return ns.db.enabled and ns.db.windows.worldmap end,
 		function(value)
 			ns.db.windows.worldmap = value
-			if not value then ns.Windows.ResetGroup("worldmap") end
+			if value then
+				ns.db.enabled = true
+			else
+				ns.Windows.ResetGroup("worldmap")
+			end
 		end)
 
 	local reset = ns.Button(layout.parent, "Reset", 60, 20, function()
@@ -185,11 +191,14 @@ local function Slider(layout, label, minV, maxV, step, get, set, format, tooltip
 		if self.mtSyncing then return end
 		set(v)
 		ns.Refresh()
+		-- Everything else on the page follows (the map switch's Reset and its percentage), but
+		-- not this slider itself: setting its value again in the middle of a drag would fight it.
+		ns.SyncOptions(self)
 	end)
 	ns.Tooltip(slider, label, tooltip)
 
 	Place(layout, holder, 44, indent)
-	widgets[#widgets + 1] = { refresh = function()
+	widgets[#widgets + 1] = { owner = slider, refresh = function()
 		local v = get()
 		slider.mtSyncing = true
 		slider:SetValue(v)
@@ -264,11 +273,7 @@ local function BuildMapPage(parent)
 	local layout = NewLayout(parent)
 	Header(layout, "World map")
 
-	Check(layout, "Map Tab is on", "The master switch. With this off Map Tab adds nothing to the map and leaves it entirely to the game.",
-		function() return ns.db.enabled end,
-		function(value) ns.db.enabled = value end)
-
-	MapSwitch(layout, "Move and resize the world map", "The switch /maptab lock and /maptab unlock turn off and on. Off, the map goes back where the game puts it, at its own size, and the tab and the reveal go with it.")
+	MapSwitch(layout, "Move and resize the world map", "Map Tab's on and off switch, the one /maptab lock and /maptab unlock turn off and on. Off, Map Tab adds nothing to the map and leaves it entirely to the game: it goes back where the game puts it, at its own size, and the tab and the reveal go with it.")
 
 	Note(layout, "Everything Map Tab adds lives in a tab under the map, so nothing covers the map's own interface. Resizing scales the whole window: the grip, the buttons and the slider set the same number, and the map, its pins and its text stay in proportion. The map never goes off screen, and a maximized map is left alone.", 0, 4)
 
@@ -442,9 +447,13 @@ local function BuildContent()
 	content:Hide()
 end
 
-function ns.SyncOptions()
+-- Brings every widget in line with the saved settings. `skip` is a control that is being used
+-- right now and already shows its own value.
+function ns.SyncOptions(skip)
 	if not content or not ns.db then return end
-	for _, widget in ipairs(widgets) do pcall(widget.refresh) end
+	for _, widget in ipairs(widgets) do
+		if skip == nil or widget.owner ~= skip then pcall(widget.refresh) end
+	end
 end
 
 local function HostContent(host, x, y, scale)

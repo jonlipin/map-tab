@@ -289,10 +289,19 @@ end
 
 -- The addon list. Nothing but Map Tab is installed unless a scenario says so. LoadAddOn reads an
 -- addon's saved variables and fires ADDON_LOADED, which is all a stub with no code does.
+--
+-- GetAddOnInfo answers with what a scenario sets. The client reports a load on demand addon that
+-- is switched on but not loaded yet as NOT loadable, with the reason DEMAND_LOADED (the reason is
+-- only given when an addon cannot be loaded right now), so that is what the scenarios use; one
+-- scenario keeps the other reading. DISABLED is only reported for an addon that is off for every
+-- character; one that is off for this character only (charDisabled) shows up in
+-- GetAddOnEnableState and in LoadAddOn's refusal. LoadAddOn decides on its own, as the client does.
 ADDONS = {}
 LOADED, DISABLED, ENABLED = {}, {}, {}
 SAVED_ADDONS = 0
 ADDON_INFO_ERRORS = ADDON_INFO_ERRORS or false
+function UnitName(unit) return "Vatik" end
+function UnitGUID(unit) return "Player-70-0A1B2C3D" end
 C_AddOns = {
   GetAddOnInfo = function(name)
     local a = ADDONS[name]
@@ -309,23 +318,37 @@ C_AddOns = {
     local a = ADDONS[name]
     if not a then return false, "MISSING" end
     if a.loaded then return true end
-    if not a.loadable then return false, a.reason end
+    if a.refuse then return false, a.refuse end
+    if a.reason == "DISABLED" or a.charDisabled then return false, "DISABLED" end
     if not a.lod then return false, "NOT_DEMAND_LOADED" end
     a.loaded = true
+    a.loadable, a.reason = true, nil
     if a.onLoad then a.onLoad() end
     if MapTabFrame then MapTabFrame.scripts.OnEvent(MapTabFrame, "ADDON_LOADED", name) end
     return true
   end,
   IsAddOnLoadOnDemand = function(name) return ADDONS[name] ~= nil and ADDONS[name].lod == true end,
+  -- 0 off, 1 on for some characters, 2 on for all; with a character, that character's state.
+  GetAddOnEnableState = function(name, character)
+    local a = ADDONS[name]
+    if not a or a.reason == "DISABLED" then return 0 end
+    if a.charDisabled then return character ~= nil and 0 or 1 end
+    return 2
+  end,
   DisableAddOn = function(name) DISABLED[#DISABLED + 1] = name if ADDONS[name] then ADDONS[name].enabled = false end end,
   -- Switching an addon on takes effect at once for LoadAddOn, as it does in the client.
   EnableAddOn = function(name)
     ENABLED[#ENABLED + 1] = name
     local a = ADDONS[name]
-    if a and a.reason == "DISABLED" then a.loadable, a.reason = true, nil end
+    if not a then return end
+    a.charDisabled = nil
+    if a.reason == "DISABLED" then
+      if a.lod then a.loadable, a.reason = false, "DEMAND_LOADED" else a.loadable, a.reason = true, nil end
+    end
   end,
   SaveAddOns = function() SAVED_ADDONS = SAVED_ADDONS + 1 end,
 }
+if NO_ENABLE_STATE then C_AddOns.GetAddOnEnableState = nil end
 if NO_ADDON_API then C_AddOns = nil end
 
 -- ------------------------------------------------------------------
@@ -1329,12 +1352,51 @@ check("/maptab scale also takes a fraction", near(ns.db.map.scale, 1.6, 0.001), 
 slash("scale 500")
 check("/maptab scale is capped", near(ns.db.map.scale, 2.0, 0.001), ns.db.map.scale)
 ns.Map.ResetSize()
+check("the map has a saved spot going into the lock", ns.db.positions["worldmap"] ~= nil and near(ns.Windows.Measure(map), 420, 1), ns.Windows.Measure(map))
 slash("lock")
 check("/maptab lock turns the world map switch off", ns.db.windows.worldmap == false)
 check("which hands the map back at its own size and hides the tab", MapTabTab.shown == false and grip.shown == false
   and near(map:GetScale(), 1, 0.001))
+check("and puts it back where the game had it", near(ns.Windows.Measure(map), 20, 1), ns.Windows.Measure(map))
+-- Locked, the saved spot is kept for later but never used: the map is the game's.
+OpenQuestPanel(true)
+RunTimers(1)
+check("a locked map is not put back at its saved spot when the quest log opens", near(ns.Windows.Measure(map), 20, 1), ns.Windows.Measure(map))
+OpenQuestPanel(false)
+RunTimers(1)
+check("nor when it closes", near(ns.Windows.Measure(map), 20, 1), ns.Windows.Measure(map))
+fire("UI_SCALE_CHANGED")
+RunTimers(1)
+check("nor on a UI scale change", near(ns.Windows.Measure(map), 20, 1), ns.Windows.Measure(map))
+map:Hide()
+map:Show()
+RunTimers(1)
+check("nor when the map is shown again", near(ns.Windows.Measure(map), 20, 1), ns.Windows.Measure(map))
+slash("scale 150")
+check("while locked, a size is remembered but not put on the map", near(ns.db.map.scale, 1.5, 0.001) and near(map:GetScale(), 1, 0.001), map:GetScale())
+check("and the map stays where the game has it", near(ns.Windows.Measure(map), 20, 1), ns.Windows.Measure(map))
 slash("unlock")
 check("/maptab unlock turns it back on", ns.db.windows.worldmap == true and MapTabTab.shown == true)
+check("with its saved spot, at the size remembered while it was locked", near(ns.Windows.Measure(map), 420, 1) and near(map:GetScale(), 1.5, 0.001),
+  ns.Windows.Measure(map))
+slash("lock")
+check("locked straight from 150 percent, the map goes back to the game's spot at its own size", near(ns.Windows.Measure(map), 20, 1)
+  and near(map:GetScale(), 1, 0.001), ns.Windows.Measure(map))
+slash("unlock")
+-- The saved master switch (a Casement whose master switch was off comes over with it off).
+ns.db.enabled = false
+ns.Refresh()
+check("with the saved master switch off the map is the game's", near(ns.Windows.Measure(map), 20, 1) and MapTabTab.shown == false
+  and near(map:GetScale(), 1, 0.001), ns.Windows.Measure(map))
+OpenQuestPanel(true)
+RunTimers(1)
+check("and stays at the game's spot through the quest log", near(ns.Windows.Measure(map), 20, 1), ns.Windows.Measure(map))
+OpenQuestPanel(false)
+RunTimers(1)
+slash("unlock")
+check("/maptab unlock turns the saved master switch back on as well", ns.db.enabled == true and ns.db.windows.worldmap == true)
+check("so the map really is movable again, as the message says", MapTabTab.shown == true and near(ns.Windows.Measure(map), 420, 1)
+  and CHAT[#CHAT]:find("movable and resizable", 1, true) ~= nil, ns.Windows.Measure(map))
 ns.Map.SetScale(1.3)
 slash("reset")
 check("/maptab reset forgets every position", next(ns.db.positions) == nil)
@@ -1360,7 +1422,7 @@ for _, f in ipairs(FRAMES) do
   if f.kind == "CheckButton" and (f.name or ""):find("^MapTabCheck") then optionChecks = optionChecks + 1 end
   if f.kind == "Button" and f.text ~= nil then optionButtons = optionButtons + 1 end
 end
-check("the options page has its switches", optionChecks >= 10, optionChecks)
+check("the options page has its switches", optionChecks >= 9, optionChecks)
 check("the options page has its buttons", optionButtons >= 16, optionButtons)
 check("one options category, named Map Tab", #CATEGORIES == 1 and CATEGORIES[1].name == "Map Tab", CATEGORIES[1] and CATEGORIES[1].name)
 check("the options window and content carry Map Tab's names", MapTabOptions ~= nil and MapTabWindow ~= nil and MapTabWindow.mtTitle.text == "Map Tab")
@@ -1375,18 +1437,9 @@ local function Labelled(text)
   end
   return nil
 end
--- Clicking the master switch off turns everything off and back on again. The master is the
--- switch labelled as such, never the first CheckButton found.
-local master = Labelled("Map Tab is on")
-check("the master switch is the one labelled so", master ~= nil)
-master:SetChecked(false)
-master.scripts.OnClick(master)
-check("the master switch writes through", ns.db.enabled == false)
-master:SetChecked(true)
-master.scripts.OnClick(master)
-check("and back on", ns.db.enabled == true)
-
--- The world map switch is the one /maptab lock and unlock flip, and it has its own Reset.
+-- Map Tab has one on/off switch, the world map switch, which /maptab lock and unlock flip. The
+-- saved master switch shows through it, so no second switch does the same thing.
+check("there is no separate master switch doing what the map switch does", Labelled("Map Tab is on") == nil)
 local mapSwitch = Labelled("Move and resize the world map")
 check("the world map switch is on the page", mapSwitch ~= nil)
 mapSwitch:SetChecked(false)
@@ -1395,6 +1448,13 @@ check("it writes through to the world map switch", ns.db.windows.worldmap == fal
 mapSwitch:SetChecked(true)
 mapSwitch.scripts.OnClick(mapSwitch)
 check("and back on", ns.db.windows.worldmap == true)
+ns.db.enabled = false
+ns.Refresh()
+ns.SyncOptions()
+check("with the saved master switch off, the map switch shows off", mapSwitch.checked == false)
+mapSwitch:SetChecked(true)
+mapSwitch.scripts.OnClick(mapSwitch)
+check("and turning it on turns both on", ns.db.enabled == true and ns.db.windows.worldmap == true and MapTabTab.shown == true)
 local resetRow
 for _, f in ipairs(FRAMES) do if f.kind == "Button" and f.text == "Reset" then resetRow = f end end
 DragTo(map, strip1, 500, 300)
@@ -1404,6 +1464,23 @@ check("its Reset is live once the map has been moved or sized", resetRow ~= nil 
 resetRow.scripts.OnClick(resetRow)
 check("and forgets the position and the size together", ns.db.positions["worldmap"] == nil and near(ns.db.map.scale, 1.0, 0.001))
 check("then goes quiet again", resetRow.enabled == false)
+
+-- The size slider brings the rest of the page along as it moves, with no sync from outside.
+local sizeSlider, sizeNote
+for _, f in ipairs(FRAMES) do if f.kind == "Slider" and f.minV == 50 and f.maxV == 200 then sizeSlider = f end end
+for _, fs in ipairs(FONTSTRINGS) do if fs.points[1] and fs.points[1][2] == resetRow then sizeNote = fs end end
+check("the map size slider is on the page", sizeSlider ~= nil)
+local sliderSets = 0
+local realSetValue = sizeSlider.SetValue
+rawset(sizeSlider, "SetValue", function(s, v) sliderSets = sliderSets + 1 return realSetValue(s, v) end)
+sizeSlider.scripts.OnValueChanged(sizeSlider, 150)
+check("moving the size slider sizes the map", near(ns.db.map.scale, 1.5, 0.001) and near(map:GetScale(), 1.5, 0.001), ns.db.map.scale)
+check("and lights up the map switch's Reset straight away", resetRow.enabled == true)
+check("with the new size shown beside it", sizeNote ~= nil and sizeNote.text == "150%", sizeNote and sizeNote.text)
+check("without setting the slider being dragged back", sliderSets == 0, sliderSets)
+rawset(sizeSlider, "SetValue", nil)
+resetRow.scripts.OnClick(resetRow)
+check("and Reset puts it all back", near(ns.db.map.scale, 1.0, 0.001) and resetRow.enabled == false)
 
 -- The drag key and the drag outlines, as they apply to the map.
 local altButton
@@ -1491,8 +1568,9 @@ end
 
 const stubPresent = String.raw`
 -- Bank Tabs replaced Casement's folder with its "old data" stub: load on demand, no code, only the
--- saved variables. The user has also already used Map Tab a little: a step of 25 and one area.
-ADDONS.Casement = { title = "Casement (old data)", loadable = true, lod = true, reason = "DEMAND_LOADED", onLoad = function()
+-- saved variables. Not loaded yet, the client reports it as not loadable, reason DEMAND_LOADED.
+-- The user has also already used Map Tab a little: a step of 25 and one area.
+ADDONS.Casement = { title = "Casement (old data)", loadable = false, lod = true, reason = "DEMAND_LOADED", onLoad = function()
   CasementAccountDB = CasementAccount()
   CasementDB = CasementCharacter()
 end }
@@ -1557,12 +1635,51 @@ check("and the addon list is saved straight away", SAVED_ADDONS == 1, SAVED_ADDO
 check("the old addon is never switched back on", #ENABLED == 0)
 check("the user is told once, naming both halves", ChatSaying("Casement has been replaced by two addons: Bank Tabs") == 1, CHAT[#CHAT])
 check("with how to finish the switch now", ChatSaying("/reload") == 1)
+check("and that Map Tab's tab takes over after the reload", ChatSaying("takes over after the reload") == 1, CHAT[#CHAT])
+check("Bank Tabs is not installed, so the line says where it comes from", ChatSaying("update Casement in the CurseForge app, where it is now Bank Tabs") == 1, CHAT[#CHAT])
 check("the import has its own line as well", ChatSaying("from Casement") == 1)
 check("the shared mark is set, so Bank Tabs coming second stays quiet", CASEMENT_REPLACED_NOTICE == "MapTab", CASEMENT_REPLACED_NOTICE)
 check("and recorded in the report", (ns.report["old casement"] or ""):find("told the user", 1, true) ~= nil, ns.report["old casement"])
-check("nothing failed", #ReportFailures() == 0, ReportFailures()[1])
+
+-- The old Casement handles the world map this session, so Map Tab keeps its hands off it: no
+-- second tab, no second set of hooks placing the map from another saved spot.
+WorldMapFrame:SetScale(1.25) -- the size the old Casement gave the map
+WorldMapFrame:Show()
+RunTimers(1)
+local entry = ns.Windows.Entry(WorldMapFrame)
+check("Map Tab leaves the map to the running old Casement this session", ns.MapOn() == false and entry ~= nil and entry.active == false)
+check("no tab of Map Tab's is drawn beside the old Casement's", MapTabTab == nil or MapTabTab.shown == false)
+check("Map Tab does not make the map movable itself", WorldMapFrame.movable == nil)
+check("the size the old Casement gave the map is left alone", near(WorldMapFrame:GetScale(), 1.25, 0.001), WorldMapFrame:GetScale())
+check("no draggable stretches are laid along the top bar", ns.Map.stripCount == 0, ns.Map.stripCount)
+OpenQuestPanel(true)
+RunTimers(1)
+check("the map is not moved to Map Tab's saved spot when the quest log opens", near(ns.Windows.Measure(WorldMapFrame), 20 * 1.25, 1), ns.Windows.Measure(WorldMapFrame))
+OpenQuestPanel(false)
+check("the report says Map Tab stands aside", (ns.report["old casement"] or ""):find("leaves the world map to it", 1, true) ~= nil, ns.report["old casement"])
+SlashCmdList["MAPTAB"]("unlock")
+check("/maptab unlock says the old Casement has the map until a reload", CHAT[#CHAT]:find("until you /reload", 1, true) ~= nil, CHAT[#CHAT])
+check("nothing failed", #ReportFailures() == 0 and #TIMER_ERRORS == 0, ReportFailures()[1] or TIMER_ERRORS[1])
 local foreign = ForeignGlobals({ CASEMENT_REPLACED_NOTICE = true })
 check("besides the shared notice mark, only Map Tab's names were added", #foreign == 0, table.concat(foreign, ", "))
+`;
+
+const oldRunningMapTabFirst = String.raw`
+-- The old Casement is running and Bank Tabs is installed too, but Map Tab reaches PLAYER_LOGIN
+-- first: it speaks, and needs no word about where Bank Tabs comes from.
+ADDONS.Casement = { title = "Casement", loadable = true, lod = false, loaded = true }
+ADDONS.BankTabs = { title = "Bank Tabs", loadable = true, lod = false, loaded = true }
+CasementFrame = CreateFrame("Frame", "CasementFrame", UIParent)
+CasementAccountDB = CasementAccount()
+CasementDB = CasementCharacter()
+
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+check("Map Tab tells the user once", ChatSaying("Casement has been replaced by two addons") == 1, CHAT[#CHAT])
+check("with Bank Tabs installed, nothing about getting it", ChatSaying("CurseForge") == 0, CHAT[#CHAT])
+check("and sets the shared mark", CASEMENT_REPLACED_NOTICE == "MapTab", CASEMENT_REPLACED_NOTICE)
+check("the map is still left to the old Casement this session", ns.MapOn() == false)
 `;
 
 const oldRunningWithBankTabs = String.raw`
@@ -1588,6 +1705,8 @@ check("the report says who did", (ns.report["old casement"] or ""):find("BankTab
 check("Map Tab's half still came over", near(ns.db.map.scale, 1.3, 0.001) and ns.db.positions.worldmap and ns.db.positions.worldmap.x == 250)
 check("with Map Tab's own one line", ChatSaying("from Casement") == 1, CHAT[#CHAT])
 check("nothing of Bank Tabs' half was taken", MapTabAccountDB.vault == nil and ns.db.positions.bank == nil)
+check("the map is left to the old Casement this session all the same", ns.MapOn() == false
+  and (ns.report["old casement"] or ""):find("leaves the world map to it", 1, true) ~= nil, ns.report["old casement"])
 `;
 
 const oldSwitchedOff = String.raw`
@@ -1601,7 +1720,13 @@ fire("PLAYER_LOGIN")
 check("the old addon switched off is neither switched on nor loaded", #ENABLED == 0 and #LOADED == 0, table.concat(ENABLED, ",") .. "/" .. table.concat(LOADED, ","))
 check("nothing is marked done while it cannot be read", MapTabAccountDB.importedCasement == nil and ns.db.importedCasement == nil)
 check("the report says it will look again", (ns.report["casement data"] or ""):find("looked for again at the next login", 1, true) ~= nil, ns.report["casement data"])
-check("no chat line", ChatSaying("Casement") == 0, CHAT[#CHAT])
+check("one chat line says why nothing came over", ChatSaying("cannot read the world map settings the old Casement saved while it is switched off") == 1, CHAT[#CHAT])
+check("and both ways to fix it: the CurseForge update, or switching it on for one login", ChatSaying("Update Casement in the CurseForge app") == 1
+  and ChatSaying("for one login") == 1, CHAT[#CHAT])
+check("Map Tab still handles the map meanwhile", ns.MapOn() == true and ns.Windows.Entry(WorldMapFrame).active == true)
+fire("PLAYER_LOGIN")
+check("a later login while it is still off says nothing more", ChatSaying("cannot read") == 1, CHAT[#CHAT])
+check("and still leaves the question open", MapTabAccountDB.importedCasement == nil)
 
 -- The user switches it on for one login: its code runs, and everything happens then.
 ADDONS.Casement = { title = "Casement", loadable = true, lod = false, loaded = true }
@@ -1612,6 +1737,7 @@ fire("PLAYER_LOGIN")
 check("at the login it runs, the map's settings come over", near(ns.db.map.scale, 1.3, 0.001) and MapTabAccountDB.importedCasement == true
   and ns.db.importedCasement == true)
 check("and it is switched off again, with the one notice", #DISABLED == 1 and ChatSaying("two addons") == 1)
+check("the map is handed back to it the moment it is found running", ns.MapOn() == false and ns.Windows.Entry(WorldMapFrame).active == false)
 `;
 
 const stubSwitchedOff = String.raw`
@@ -1631,6 +1757,92 @@ check("then loaded on demand", #LOADED == 1 and LOADED[1] == "Casement")
 check("and the map's settings came over", near(ns.db.map.scale, 1.3, 0.001) and MapTabAccountDB.importedCasement == true)
 check("the report says it was switched on", (ns.report["casement data stub"] or ""):find("switched back on", 1, true) ~= nil, ns.report["casement data stub"])
 check("the stub is not the old addon, so no notice", ChatSaying("two addons") == 0 and #DISABLED == 0)
+`;
+
+const stubOffHere = String.raw`
+-- The data stub is switched off for this character only. GetAddOnInfo does not say DISABLED for
+-- that (only for an addon off for every character); the per character enable state does.
+ADDONS.Casement = { title = "Casement (old data)", loadable = false, reason = "DEMAND_LOADED", lod = true, charDisabled = true, onLoad = function()
+  CasementAccountDB = CasementAccount()
+  CasementDB = CasementCharacter()
+end }
+
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+check("a stub switched off for this character only is switched on to be read", #ENABLED == 1 and ENABLED[1] == "Casement", table.concat(ENABLED, ","))
+check("then loaded on demand, once", #LOADED == 1 and LOADED[1] == "Casement", table.concat(LOADED, ","))
+check("and the map's settings came over", near(ns.db.map.scale, 1.3, 0.001) and MapTabAccountDB.importedCasement == true and ns.db.importedCasement == true)
+check("the report says it was off for this character", (ns.report["casement data stub"] or ""):find("for this character", 1, true) ~= nil, ns.report["casement data stub"])
+`;
+
+const stubOffHereNoState = String.raw`
+-- The same, on a client with no enable state to ask: LoadAddOn's own refusal says it, and the
+-- stub is switched on and loaded at the second try instead of being retried at every login.
+ADDONS.Casement = { title = "Casement (old data)", loadable = false, reason = "DEMAND_LOADED", lod = true, charDisabled = true, onLoad = function()
+  CasementAccountDB = CasementAccount()
+  CasementDB = CasementCharacter()
+end }
+
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+check("refused as switched off, the stub is switched on", #ENABLED == 1 and ENABLED[1] == "Casement", table.concat(ENABLED, ","))
+check("and loaded at the second try", #LOADED == 2 and ADDONS.Casement.loaded == true, table.concat(LOADED, ","))
+check("so the map's settings came over at this login", near(ns.db.map.scale, 1.3, 0.001) and MapTabAccountDB.importedCasement == true)
+`;
+
+const stubRefused = String.raw`
+-- The data stub is there and switched on, but the game will not load it. Nothing is marked done,
+-- the user is told once per account, and it is tried again at the next login.
+ADDONS.Casement = { title = "Casement (old data)", loadable = false, reason = "DEMAND_LOADED", lod = true, refuse = "INCOMPATIBLE" }
+
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+check("the load was tried", #LOADED == 1, table.concat(LOADED, ","))
+check("nothing is marked done", MapTabAccountDB.importedCasement == nil and ns.db.importedCasement == nil)
+check("the report names the game's reason", (ns.report["casement data"] or ""):find("could not be loaded (incompatible)", 1, true) ~= nil, ns.report["casement data"])
+check("one chat line says so", ChatSaying("could not open the data the old Casement left behind") == 1, CHAT[#CHAT])
+check("a stub that is switched on is not switched on again", #ENABLED == 0)
+fire("PLAYER_LOGIN")
+check("it is tried again at the next login", #LOADED == 2, #LOADED)
+check("without a second chat line", ChatSaying("could not open") == 1)
+`;
+
+const stubNothingNew = String.raw`
+-- The stub holds Casement data, but every world map setting in it is already Map Tab's default and
+-- the reveal had learned nothing. The first import still says, in one line, that it looked.
+ADDONS.Casement = { title = "Casement (old data)", loadable = false, reason = "DEMAND_LOADED", lod = true, onLoad = function()
+  CasementAccountDB = { version = "1.2.3", overlays = {}, vault = { chars = {}, guilds = {} } }
+  CasementDB = { enabled = true, windows = { worldmap = true, bags = true }, dragModifier = "alt", map = { scale = 1.0, step = 10 } }
+end }
+
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+check("the stub was read", #LOADED == 1 and MapTabAccountDB.importedCasement == true and ns.db.importedCasement == true)
+check("the report counts nothing brought over", (ns.report["casement data"] or ""):find("0 settings", 1, true) ~= nil
+  and ns.report["casement data"]:find("0 learned map areas", 1, true) ~= nil, ns.report["casement data"])
+check("one chat line still says Casement's data was found and nothing needed changing", ChatSaying("nothing in it needed bringing over") == 1, CHAT[#CHAT])
+check("and no line claiming something came over", ChatSaying("brought your world map over") == 0)
+`;
+
+const stubReportedLoadable = String.raw`
+-- The other reading of GetAddOnInfo for a load on demand addon that is switched on: loadable, with
+-- no reason. It is loaded on demand all the same.
+ADDONS.Casement = { title = "Casement (old data)", loadable = true, lod = true, onLoad = function()
+  CasementAccountDB = CasementAccount()
+  CasementDB = CasementCharacter()
+end }
+
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+check("a stub reported loadable is loaded on demand, once", #LOADED == 1 and LOADED[1] == "Casement", table.concat(LOADED, ","))
+check("and nothing is switched on or off", #ENABLED == 0 and #DISABLED == 0)
+check("the map's settings came over", near(ns.db.map.scale, 1.3, 0.001) and ns.db.positions.worldmap and ns.db.positions.worldmap.x == 250)
+check("with the one chat line", ChatSaying("from Casement") == 1, CHAT[#CHAT])
 `;
 
 const nothingPresent = String.raw`
@@ -1669,7 +1881,7 @@ check("the map tab is still built", MapTabTab ~= nil and MapTabTab.shown == true
 const alreadyImported = String.raw`
 -- Brought over at an earlier login. The stub is still there, holding different numbers now; none
 -- of them may come back.
-ADDONS.Casement = { title = "Casement (old data)", loadable = true, lod = true, reason = "DEMAND_LOADED", onLoad = function()
+ADDONS.Casement = { title = "Casement (old data)", loadable = false, lod = true, reason = "DEMAND_LOADED", onLoad = function()
   CasementAccountDB = CasementAccount()
   CasementDB = CasementCharacter()
 end }
@@ -1689,9 +1901,10 @@ check("the report says it was done before", ns.report["casement data"] == "alrea
 const secondCharacter = String.raw`
 -- The account's share came over when another character logged in; this character has never run
 -- Map Tab, so its table is empty and adopts the account copy (which carries the first character's
--- "done" mark and a changed size). This character's own Casement settings still come over, but
--- only over values still at their defaults, and without a second chat line.
-ADDONS.Casement = { title = "Casement (old data)", loadable = true, lod = true, reason = "DEMAND_LOADED", onLoad = function()
+-- "done" mark and a changed size). Nothing in that adopted table is this character's own choice,
+-- so this character's own Casement settings replace it, the way Bank Tabs treats the settings the
+-- two share, and without a second chat line.
+ADDONS.Casement = { title = "Casement (old data)", loadable = false, lod = true, reason = "DEMAND_LOADED", onLoad = function()
   CasementAccountDB = CasementAccount()
   CasementDB = CasementCharacter()
 end }
@@ -1707,7 +1920,8 @@ fire("PLAYER_LOGIN")
 check("the stub is loaded for this character's own settings", #LOADED == 1 and LOADED[1] == "Casement", table.concat(LOADED, ","))
 check("this character's map position came over", ns.db.positions.worldmap and ns.db.positions.worldmap.x == 250)
 check("a setting still at its default came over", ns.db.map.coords == false and ns.db.dragModifier == "ctrl")
-check("a setting the account copy had changed is kept", near(ns.db.map.scale, 1.4, 0.001), ns.db.map.scale)
+check("this character's own Casement size replaces the one the adopted account copy had", near(ns.db.map.scale, 1.3, 0.001), ns.db.map.scale)
+check("as do its own switches", ns.db.showGrips == true and ns.db.map.reveal == true and ns.db.map.revealTint == "sepia" and ns.db.map.step == 5)
 check("the account's share is not merged a second time", next(MapTabAccountDB.overlays) == nil)
 check("no chat line for a later character", ChatSaying("Casement") == 0, CHAT[#CHAT])
 check("but the report records it", (ns.report["casement data"] or ""):find("came over earlier", 1, true) ~= nil, ns.report["casement data"])
@@ -1717,7 +1931,7 @@ check("this character is marked done", ns.db.importedCasement == true)
 const neverRanCasement = String.raw`
 -- The stub is there, but this character never ran Casement, so it has no Casement settings of its
 -- own. It gets what Casement would have given it, the account copy, minus anyone's map position.
-ADDONS.Casement = { title = "Casement (old data)", loadable = true, lod = true, reason = "DEMAND_LOADED", onLoad = function()
+ADDONS.Casement = { title = "Casement (old data)", loadable = false, lod = true, reason = "DEMAND_LOADED", onLoad = function()
   CasementAccountDB = CasementAccount()
   CasementAccountDB.profile.positions = { worldmap = { x = 777, y = 77 } }
   CasementDB = nil
@@ -1778,8 +1992,14 @@ scenario('clean install', cleanInstall);
 scenario('Casement stub present', stubPresent);
 scenario('old Casement running', oldRunning);
 scenario('old Casement running, Bank Tabs first', oldRunningWithBankTabs);
+scenario('old Casement running, Map Tab first beside Bank Tabs', oldRunningMapTabFirst);
 scenario('old Casement switched off', oldSwitchedOff);
 scenario('Casement stub switched off', stubSwitchedOff);
+scenario('Casement stub switched off for this character', stubOffHere);
+scenario('Casement stub switched off for this character, no enable state', stubOffHereNoState, 'NO_ENABLE_STATE=true\n');
+scenario('Casement stub the game will not load', stubRefused);
+scenario('Casement stub with nothing new in it', stubNothingNew);
+scenario('Casement stub reported loadable', stubReportedLoadable);
 scenario('nothing present', nothingPresent);
 scenario('no addon list API', noAddOnApi, 'NO_ADDON_API=true\n');
 scenario('already brought over', alreadyImported);

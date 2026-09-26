@@ -25,6 +25,9 @@ local map, tab, grip, label
 local resizing = nil
 local strips = {}
 local rebuildQueued = false
+-- Whether the map's current scale is one Map Tab set. Switched off, Map Tab only ever undoes its
+-- own scale, never one something else (the old Casement, say) put on the map.
+local scaled = false
 
 -- How far down from the top edge of the map the draggable band reaches, in screen units.
 local BAND = 26
@@ -53,6 +56,12 @@ local function Percent()
 	return math.floor((ns.db.map.scale or 1) * 100 + 0.5)
 end
 
+-- Whether Map Tab is handling the map right now. Switched off (or with the old Casement running
+-- this session) the map is the game's, and nothing here may place or scale it.
+local function On()
+	return ns.MapOn and ns.MapOn() or false
+end
+
 local function CursorInUIUnits()
 	local x, y = GetCursorPosition()
 	local scale = UIParent:GetEffectiveScale() or 1
@@ -72,6 +81,9 @@ local function Replace()
 	-- While the corner is being dragged the resize loop does the placing itself, one corner held
 	-- still, so this stays out of the way.
 	if resizing then return end
+	-- Locked or switched off, the map is back under the game's control. The saved position is
+	-- kept for when it is switched on again, but never used meanwhile.
+	if not On() then return end
 	local pos = ns.db.positions["worldmap"]
 	if pos then
 		ns.Windows.Place(frame, pos.x, pos.y)
@@ -110,8 +122,9 @@ function Map.SetScale(value, save)
 	value = ns.Clamp(ns.Round(value, 3), db.minScale, db.maxScale)
 	db.scale = value
 	local frame = MapFrame()
-	if frame and not IsMaximized() then
-		pcall(frame.SetScale, frame, value)
+	-- Switched off, the size is only remembered; it is put on the map when it is switched on.
+	if frame and On() and not IsMaximized() then
+		if pcall(frame.SetScale, frame, value) then scaled = true end
 	end
 	CounterScale()
 	PlaceTab()
@@ -599,7 +612,7 @@ local function BuildStrips()
 	local frame = MapFrame()
 	if not frame then return end
 
-	local on = ns.db.enabled and ns.db.windows.worldmap and ns.db.map.topBarDrag
+	local on = On() and ns.db.map.topBarDrag
 	if not on or not frame:IsShown() or IsMaximized() then
 		HideStrips()
 		if not on then report["map top bar"] = "switched off" end
@@ -688,7 +701,7 @@ function Map.Apply()
 	local frame = MapFrame()
 	if not frame then return end
 	local db = ns.db
-	local on = db.enabled and db.windows.worldmap and true or false
+	local on = On()
 
 	if on then BuildTab() end
 	if tab then
@@ -699,10 +712,11 @@ function Map.Apply()
 
 	if on then
 		Map.SetScale(db.map.scale, false)
-	elseif (frame:GetScale() or 1) ~= 1 then
-		-- With the feature switched off the map goes back to the size the game gives it.
+	elseif scaled then
+		-- With the feature switched off the map goes back to the size the game gives it. Where it
+		-- sits is the game's business again: the move engine has already handed back its anchors.
 		pcall(frame.SetScale, frame, 1)
-		Replace()
+		scaled = false
 	end
 	if label then label:SetText(Percent() .. "%") end
 

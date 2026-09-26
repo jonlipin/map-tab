@@ -406,7 +406,8 @@ function Windows.Apply()
 	if not ns.db then return end
 	for _, entry in ipairs(entries) do
 		local option = OptionKey(entry)
-		local wanted = ns.db.enabled and option and ns.db.windows[option] and true or false
+		-- ns.MapOn also keeps the map detached while the old Casement runs this session.
+		local wanted = ns.MapOn() and option and ns.db.windows[option] and true or false
 		if wanted then Attach(entry) else Detach(entry) end
 		UpdateGripLook(entry)
 	end

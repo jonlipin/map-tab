@@ -57,16 +57,23 @@ bank half is Bank Tabs, a separate download.
 ## Coming from Casement
 
 At your first login with Map Tab, the world map's share of Casement's saved data is copied across
-once: the map's size, position and switches for each character, and the map areas the reveal had
-learned for the account. Anything you have already changed in Map Tab is kept, and Casement's own
-saved data is left as it was. One chat line says what came over.
+once: the map's size, position and switches for each character (from that character's own
+Casement settings, the first time it logs in), and the map areas the reveal had learned for the
+account. Anything you have already changed in Map Tab is kept, and Casement's own saved data is
+left as it was. One chat line says what came over, or that nothing needed to.
 
 The data is read from the old Casement if it is still installed and running, or from the small
-"Casement (old data)" folder that Bank Tabs leaves in Casement's place. If the old Casement is
-installed but switched off, its settings come over at the first login it is switched on. If the
-old, whole Casement is still running, it is switched off from your next login so it stops handling
-the map beside Map Tab, and one line in chat says so (Bank Tabs does the same, and only one of the
-two says it); type `/reload` to finish the switch at once.
+"Casement (old data)" folder that Bank Tabs leaves in Casement's place (switched back on first if
+it was left switched off). If the old Casement is installed but switched off, its settings come
+over at the first login it can be read, and one chat line, once per account, says how: update
+Casement in the CurseForge app, where it is now Bank Tabs, or switch the old Casement on for one
+login.
+
+If the old, whole Casement is still running, it is switched off from your next login and one line
+in chat says so (Bank Tabs does the same, and only one of the two says it). For that session the
+old Casement keeps the world map and Map Tab leaves the map alone, so there are never two tabs
+under it; type `/reload` to finish the switch at once. If Bank Tabs is not installed yet, the same
+line says to update Casement in the CurseForge app, so the bags, bank and saved banks carry on.
 
 Map Tab works on its own, and beside Bank Tabs: both follow the game's panel positioning, and each
 only ever puts back its own windows.
@@ -79,7 +86,7 @@ only ever puts back its own windows.
 | `/maptab window` | Opens the options in a window of their own |
 | `/maptab scale 120` | Sets the world map size, 50 to 200 percent |
 | `/maptab reset` | Puts the map back where the game had it, at 100 percent |
-| `/maptab lock` / `unlock` | Turns the world map switch off or on |
+| `/maptab lock` / `unlock` | Turns the world map switch off or on; locked, the map is the game's again |
 | `/maptab coords` | Puts your coordinates in a box to copy |
 | `/maptab mapdata` | Reports how much of the shown map the reveal knows; `dump` opens all of it |
 | `/maptab grips` | Outlines the parts of the map you can drag |
@@ -106,7 +113,7 @@ second move engine on the same panel hooks to prove the two leave each other's w
 way Casement's data can be waiting at the first login runs in a fresh Lua state of its own.
 
 ```
-node tests/maptabtest.js              # 322 checks
+node tests/maptabtest.js              # 385 checks
 node tests/maptabtest.js --bare       # every UI template missing
 node tests/maptabtest.js --noenum     # no Enum.BagIndex
 ```
