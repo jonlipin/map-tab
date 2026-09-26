@@ -1,0 +1,18 @@
+## Interface: 16001
+## Title: Map Tab
+## Notes: Move and resize the world map from a tab under it, with your coordinates and the cursor's, a copy-to-chat button, and an optional reveal of unexplored areas.
+## Author: jonlipin
+## Version: 1.0.0
+## SavedVariables: MapTabAccountDB
+## SavedVariablesPerCharacter: MapTabDB
+## IconTexture: Interface\Icons\INV_Misc_Map_01
+## X-Category: Map
+## X-Website: https://github.com/jonlipin/map-tab
+## X-License: MIT
+
+Core.lua
+Windows.lua
+Map.lua
+Data\MapOverlays.lua
+Reveal.lua
+Options.lua

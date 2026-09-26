@@ -1,0 +1,9 @@
+package-as: MapTab
+
+ignore:
+  - tests
+  - tools
+
+manual-changelog:
+  filename: RELEASE-NOTES.md
+  markup-type: markdown
