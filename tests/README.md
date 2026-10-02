@@ -9,9 +9,9 @@ map is scaled, and putting the map back after the game has re-anchored it.
 node tests/maptabtest.js [addon dir] [--bare] [--verbose] [--noenum]
 ```
 
-- no flags: 457 checks against the normal client
-- `--bare`: every UI template is missing, so every fallback path runs (457 checks)
-- `--noenum`: no `Enum.BagIndex`, which Map Tab never reads (457 checks)
+- no flags: 496 checks against the normal client
+- `--bare`: every UI template is missing, so every fallback path runs (496 checks)
+- `--noenum`: no `Enum.BagIndex`, which Map Tab never reads (496 checks)
 - `--verbose`: prints everything the addon puts in the chat frame, and each scenario's tally
 
 The addon directory defaults to the repository the script sits in.
@@ -24,7 +24,15 @@ Each scenario runs in a fresh Lua state:
   (and switches the saved master switch off) with a saved spot and proves the map stays the
   game's through the quest log, a UI scale change and a size set while locked, and that the map
   switch is the page's only on and off switch, keeps the map's saved spot and size when switched
-  off on the page just as `/maptab lock` does, and follows the size slider as it moves;
+  off on the page just as `/maptab lock` does, and follows the size slider as it moves; and it
+  points at zones on the continent map through a stand in for the game's area label, which
+  writes the bare zone name every frame the way the real one does on this client: the range is
+  added in the game's difficulty colour for each level band, a single level shows alone, zones
+  with no range keep their bare name, and nothing is added where the game shows its own range
+  (after the name or under it), over a point of interest's label, off the map, over the map on
+  show, on frames where the label does not rewrite the name, with the option off, or with the
+  map locked; a fault in the table stays inside Map Tab, and the World map page still fits its
+  frame with the new switch;
 - Casement's old data stub present, reported the way the client reports a load on demand addon
   that is not loaded yet (not loadable, reason `DEMAND_LOADED`), loaded on demand at login and its
   world map share copied over; and the same stub reported loadable, the other reading;
@@ -65,6 +73,9 @@ Each scenario runs in a fresh Lua state:
 - already brought over at an earlier login;
 - a second character, whose own Casement settings replace the account copy it adopted, except
   where Casement only filled in its default;
-- a character that never ran Casement, which gets Casement's account copy without a position.
+- a character that never ran Casement, which gets Casement's account copy without a position;
+- the map's area label made after Map Tab loads: the report says why there are no ranges (no data
+  providers, or none of them the label), the label is hooked the first time the map opens with it,
+  and opening the map again does not hook it twice.
 
 It needs `fengari` on the module path; the copy this was developed against is not checked in.

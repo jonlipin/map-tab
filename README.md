@@ -54,6 +54,19 @@ windows, and every character's saved bank, bags and guild bank, are in the separ
   to send: `The Barrens 45.2, 67.8`. If you are already typing a chat line, it goes into that.
   Right-click the button for a box to copy the text out of with Ctrl+C.
 
+**Zone level ranges**
+
+- Point at a zone on the continent map and its level range follows its name in the label at the
+  top of the map, for example Westfall (10-20), the way the game itself does for zones it knows the
+  levels of. On this client it knows none, so Map Tab supplies them.
+- The range is coloured by how hard the zone is for you, in the game's own quest colours: red or
+  orange while it is above you, yellow while you are inside it, green or grey once you have
+  outgrown it.
+- Every zone on Kalimdor and the Eastern Kingdoms has its range, plus the WoW: Forever zones
+  Zephras Isle (1-12), Riverglades (35-45) and Mount Hyjal (60). The cities and Moonglade have no
+  range, and Shen'dralas has none until its range is known.
+- On by default, with its own switch in the options.
+
 **Unexplored areas (optional)**
 
 - Off by default. Switched on, the parts of the map you have not explored yet are drawn in with
@@ -82,7 +95,7 @@ their own). Two pages:
 - **World map**: the world map switch (Map Tab's one on and off switch) with its Reset, dragging by
   the top bar, the corner handle, the drag anywhere key, the drag area outlines, the percentage
   buttons, the resize grip, the map size slider, the step size, the coordinates, the cursor
-  coordinates, and the unexplored areas with their tint.
+  coordinates, the zone level ranges, and the unexplored areas with their tint.
 - **About**: the commands, a button that prints the debug report, and a button that resets every
   setting (the map areas the reveal has learned are kept).
 
@@ -161,8 +174,8 @@ only ever puts back its own windows.
 - While the map is maximized, sizing and the tab are paused. Moving still works.
 - At sizes where the map is taller than your screen, the tab can end up above the top of the
   screen. `/maptab reset`, `/maptab scale 100` or the size slider in the options brings it back.
-- Locking the map (`/maptab lock` or the options switch) turns the tab, the coordinates and the
-  reveal off with it until you unlock.
+- Locking the map (`/maptab lock` or the options switch) turns the tab, the coordinates, the zone
+  level ranges and the reveal off with it until you unlock.
 - Where the game does not give your position, your line shows two dashes instead of numbers.
 
 ## If something does not work
@@ -177,21 +190,22 @@ what the reveal knows, and whether any Casement data was brought over.
 
 The addon files sit at the top of the repository: `MapTab.toc`, `Core.lua` (saved variables, the
 Casement carry-over, slash commands), `Windows.lua` (the move engine), `Map.lua` (the tab, the
-scaling, the top bar, the coordinates), `Reveal.lua` (the unexplored areas), `Options.lua` and
+scaling, the top bar, the coordinates), `Reveal.lua` (the unexplored areas), `Levels.lua` (the
+zone level ranges), `Options.lua` and
 `Data/MapOverlays.lua`. `tests` and `tools` are left out of the CurseForge package (`.pkgmeta`).
 
 `tests/maptabtest.js` is an offline harness. It stubs the game API in fengari, including a small
 layout engine for points, anchors and scales, and walks the addon's main paths: clamping, dragging,
-scaling, snapping, the tab, the coordinates, the reveal and the options. It builds a stand in for
+scaling, snapping, the tab, the coordinates, the reveal, the zone level ranges and the options. It builds a stand in for
 the quest panel, so the layering the resize grip needs is asserted rather than assumed, and runs a
 second move engine on the same panel hooks to prove the two leave each other's windows alone. Each
 way Casement's data can be waiting at the first login runs in a fresh Lua state of its own.
 `tests/README.md` lists every scenario.
 
 ```
-node tests/maptabtest.js              # 457 checks
-node tests/maptabtest.js --bare       # every UI template missing (457 checks)
-node tests/maptabtest.js --noenum     # proves Map Tab never reads the bag enums (457 checks)
+node tests/maptabtest.js              # 496 checks
+node tests/maptabtest.js --bare       # every UI template missing (496 checks)
+node tests/maptabtest.js --noenum     # proves Map Tab never reads the bag enums (496 checks)
 node tests/maptabtest.js --verbose    # also prints the addon's chat output
 ```
 

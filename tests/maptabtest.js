@@ -17,7 +17,7 @@ const path = require('path');
 const { lua, lauxlib, lualib, to_luastring } = require('fengari');
 const argDir = process.argv.slice(2).find(a => !a.startsWith('--'));
 const DIR = (argDir || path.resolve(__dirname, '..')).split(path.sep).join('/').replace(/\/?$/, '/');
-const files = ['Core.lua', 'Windows.lua', 'Map.lua', 'Data/MapOverlays.lua', 'Reveal.lua', 'Options.lua'];
+const files = ['Core.lua', 'Windows.lua', 'Map.lua', 'Data/MapOverlays.lua', 'Reveal.lua', 'Levels.lua', 'Options.lua'];
 
 const stub = String.raw`
 local VERBS = { "Set", "Get", "Is", "Create", "Register", "Enable", "Clear", "Hook", "Start", "Stop", "Has", "Num", "Add", "Unregister", "Disable", "Raise", "Lower", "Lock", "Unlock", "Show", "Hide", "Insert", "Toggle" }
@@ -403,6 +403,71 @@ C_MapExplorationInfo = {
   GetExploredMapTextures = function(mapID) return EXPLORED[mapID] end,
 }
 
+-- The map's area label, standing in for the game's AreaLabelFrameMixin. Every frame its OnUpdate
+-- writes the name of the map under the cursor, when that is a child of the map on show, adding the
+-- game's own range only when C_Map.GetMapLevels has one (on this client it never does); a point of
+-- interest's label wins over the zone's. With LABEL_WRITES_ON_CHANGE it rewrites the name only when
+-- the text it wants differs from the last it wrote, the way the game's label skips a frame that is
+-- not dirty. In --bare the game's quest difficulty colours are missing, so Map Tab's own are used.
+PLAYER_LEVEL = 20
+function UnitLevel() return PLAYER_LEVEL end
+HOVER = nil
+CANVAS_FOCUS = false
+GAME_LEVELS = {}
+POI_LABEL = nil
+LABEL_WRITES_ON_CHANGE = false
+GAME_LEVELS_ON_DESCRIPTION = false
+C_Map.GetMapInfoAtPosition = function(mapID, x, y) return HOVER end
+C_Map.GetMapLevels = function(mapID) local l = GAME_LEVELS[mapID] if l then return l[1], l[2], 0, 0 end end
+rawset(WorldMapFrame, "IsCanvasMouseFocus", function() return CANVAS_FOCUS end)
+rawset(WorldMapFrame, "GetNormalizedCursorPosition", function()
+  if not CURSOR_NORM then return nil end
+  return CURSOR_NORM[1], CURSOR_NORM[2]
+end)
+if not BARE then
+  QuestDifficultyColors = {
+    impossible = { r = 1.00, g = 0.10, b = 0.10 }, verydifficult = { r = 1.00, g = 0.50, b = 0.25 },
+    difficult = { r = 1.00, g = 0.82, b = 0.00 }, standard = { r = 0.25, g = 0.75, b = 0.25 },
+    trivial = { r = 0.50, g = 0.50, b = 0.50 },
+  }
+  function UnitQuestTrivialLevelRange() return 5 end
+  function GetQuestDifficultyColor(level)
+    local diff = level - PLAYER_LEVEL
+    if diff >= 5 then return QuestDifficultyColors.impossible end
+    if diff >= 3 then return QuestDifficultyColors.verydifficult end
+    if diff >= -4 then return QuestDifficultyColors.difficult end
+    if -diff <= UnitQuestTrivialLevelRange() then return QuestDifficultyColors.standard end
+    return QuestDifficultyColors.trivial
+  end
+end
+AREA_LABEL = CreateFrame("Frame", nil, WorldMapFrame.ScrollContainer)
+AREA_LABEL.Name = AREA_LABEL:CreateFontString(nil, "OVERLAY")
+AREA_LABEL.Description = AREA_LABEL:CreateFontString(nil, "OVERLAY")
+rawset(AREA_LABEL, "EvaluateLabels", function() end)
+AREA_LABEL:SetScript("OnUpdate", function(self)
+  local text = ""
+  if WorldMapFrame:IsCanvasMouseFocus() then
+    local x, y = WorldMapFrame:GetNormalizedCursorPosition()
+    local info = C_Map.GetMapInfoAtPosition(WorldMapFrame:GetMapID(), x, y)
+    if info and info.mapID ~= WorldMapFrame:GetMapID() then
+      text = info.name
+      local low, high = C_Map.GetMapLevels(info.mapID)
+      if low and high and low > 0 and high > 0 then
+        if GAME_LEVELS_ON_DESCRIPTION then self.Description:SetText("Level " .. low .. "-" .. high)
+        else text = text .. "|cffffd100 (" .. low .. "-" .. high .. ")|r" end
+      end
+    end
+  end
+  if POI_LABEL then text = POI_LABEL end
+  if LABEL_WRITES_ON_CHANGE and text == self.lastWritten then return end
+  self.lastWritten = text
+  self.Name:SetText(text)
+end)
+AREA_PROVIDER = { Label = AREA_LABEL, GetMap = function() return WorldMapFrame end }
+AREA_LABEL.dataProvider = AREA_PROVIDER
+WorldMapFrame.dataProviders = { [AREA_PROVIDER] = true, [{ Label = { NotTheAreaLabel = true } }] = true, [{}] = true }
+function UpdateAreaLabel() AREA_LABEL.scripts.OnUpdate(AREA_LABEL) end
+
 -- The chat line: either open (text goes in at the cursor) or shut (a fresh line is opened).
 CHAT_EDIT = obj("EditBox")
 CHAT_EDIT:Hide()
@@ -655,8 +720,8 @@ do -- scope: 1b. The TOC matches what is loaded
   local same = #listed == #FILES
   for i, file in ipairs(FILES) do if listed[i] ~= file then same = false end end
   check("the TOC loads exactly the files the harness loads, in that order", same, table.concat(listed, ", "))
-  check("the TOC calls it Map Tab, version 1.0.0, like the code does", TOC_TEXT:find("## Title: Map Tab", 1, true) ~= nil
-    and TOC_TEXT:find("## Version: 1.0.0", 1, true) ~= nil and ns.version == "1.0.0")
+  check("the TOC calls it Map Tab, version 1.1.0, like the code does", TOC_TEXT:find("## Title: Map Tab", 1, true) ~= nil
+    and TOC_TEXT:find("## Version: 1.1.0", 1, true) ~= nil and ns.version == "1.1.0")
   check("the TOC names Map Tab's own saved variables", TOC_TEXT:find("## SavedVariables: MapTabAccountDB", 1, true) ~= nil
     and TOC_TEXT:find("## SavedVariablesPerCharacter: MapTabDB", 1, true) ~= nil)
   check("the TOC's icon is the map scroll", TOC_TEXT:find("## IconTexture: Interface\\Icons\\INV_Misc_Map_01", 1, true) ~= nil)
@@ -1123,6 +1188,137 @@ ns.Refresh()
 end -- scope
 
 -- ------------------------------------------------------------------
+-- 4f. Zone level ranges on the continent map
+-- ------------------------------------------------------------------
+do -- scope: 4f. Zone level ranges
+  local L = ns.Levels
+  check("the zone level module is built", type(L) == "table" and type(L.RANGES) == "table")
+  check("it hooked into the map's area label, passing over the providers that are not it", L.IsHooked() and L.labelFrame == AREA_LABEL
+    and ns.report["zone levels"] == "hooked into the map's area label", ns.report["zone levels"])
+  check("it is on by default", ns.db.map.zoneLevels == true and (ns.report["zone levels shown"] or ""):find("^yes") ~= nil,
+    ns.report["zone levels shown"])
+  local count, sane = 0, true
+  for id, r in pairs(L.RANGES) do
+    count = count + 1
+    if type(id) ~= "number" or type(r) ~= "table" or r[1] < 1 or r[2] > 60 or r[1] > r[2] then sane = false end
+  end
+  check("the table holds 43 zones, each a range inside 1 to 60", count == 43 and sane, count)
+  check("the report counts them", ns.report["zone level table"] == "43 zones", ns.report["zone level table"])
+  check("the Forever zones are in it", L.RANGES[2548] and L.RANGES[2548][1] == 35 and L.RANGES[2548][2] == 45
+    and L.RANGES[2521] and L.RANGES[2521][2] == 12 and L.RANGES[2665] and L.RANGES[2482] and L.RANGES[2482][1] == 60)
+  check("and the zones with no range are not", L.RANGES[1450] == nil and L.RANGES[1453] == nil and L.RANGES[2652] == nil)
+
+  -- The Eastern Kingdoms, pointing at Westfall.
+  SHOWN_MAP, CANVAS_FOCUS, PLAYER_LEVEL = 1415, true, 20
+  HOVER = { mapID = 1436, name = "Westfall" }
+  UpdateAreaLabel()
+  check("the zone's range follows its name, yellow while you are inside it", AREA_LABEL.Name:GetText() == "Westfall|cffffd100 (10-20)|r",
+    AREA_LABEL.Name:GetText())
+  check("and it is remembered for the report", L.lastShown == "Westfall|cffffd100 (10-20)|r")
+  PLAYER_LEVEL = 5
+  UpdateAreaLabel()
+  check("red while it is five or more above you", AREA_LABEL.Name:GetText() == "Westfall|cffff1a1a (10-20)|r", AREA_LABEL.Name:GetText())
+  PLAYER_LEVEL = 7
+  UpdateAreaLabel()
+  check("orange at three or four above you", AREA_LABEL.Name:GetText() == "Westfall|cffff8040 (10-20)|r", AREA_LABEL.Name:GetText())
+  PLAYER_LEVEL = 21
+  UpdateAreaLabel()
+  check("still yellow just past the top, as the game colours a zone below you by two under its top",
+    AREA_LABEL.Name:GetText() == "Westfall|cffffd100 (10-20)|r", AREA_LABEL.Name:GetText())
+  PLAYER_LEVEL = 23
+  UpdateAreaLabel()
+  check("green once you have outgrown it", AREA_LABEL.Name:GetText() == "Westfall|cff40bf40 (10-20)|r", AREA_LABEL.Name:GetText())
+  PLAYER_LEVEL = 40
+  UpdateAreaLabel()
+  check("grey once it is far below you", AREA_LABEL.Name:GetText() == "Westfall|cff808080 (10-20)|r", AREA_LABEL.Name:GetText())
+
+  -- Kalimdor, and the Forever zones.
+  SHOWN_MAP, PLAYER_LEVEL = 1414, 50
+  HOVER = { mapID = 2482, name = "Mount Hyjal" }
+  UpdateAreaLabel()
+  check("a zone of a single level shows that level alone", AREA_LABEL.Name:GetText() == "Mount Hyjal|cffff1a1a (60)|r", AREA_LABEL.Name:GetText())
+  HOVER = { mapID = 1443, name = "Desolace" }
+  PLAYER_LEVEL = 33
+  UpdateAreaLabel()
+  check("Desolace at 33 is yellow", AREA_LABEL.Name:GetText() == "Desolace|cffffd100 (30-40)|r", AREA_LABEL.Name:GetText())
+  HOVER = { mapID = 1450, name = "Moonglade" }
+  UpdateAreaLabel()
+  check("a zone with no range keeps its bare name", AREA_LABEL.Name:GetText() == "Moonglade", AREA_LABEL.Name:GetText())
+  SHOWN_MAP, PLAYER_LEVEL = 947, 3
+  HOVER = { mapID = 2521, name = "Zephras Isle" }
+  UpdateAreaLabel()
+  check("Zephras Isle, on the world map, is 1-12", AREA_LABEL.Name:GetText() == "Zephras Isle|cffffd100 (1-12)|r", AREA_LABEL.Name:GetText())
+  SHOWN_MAP, PLAYER_LEVEL = 1415, 40
+  HOVER = { mapID = 2548, name = "Riverglades" }
+  UpdateAreaLabel()
+  check("Riverglades is 35-45", AREA_LABEL.Name:GetText() == "Riverglades|cffffd100 (35-45)|r", AREA_LABEL.Name:GetText())
+
+  -- What it must leave alone.
+  PLAYER_LEVEL = 20
+  HOVER = { mapID = 1436, name = "Westfall" }
+  GAME_LEVELS[1436] = { 11, 21 }
+  UpdateAreaLabel()
+  check("where the game knows the range itself, its text stands and no second range is added",
+    AREA_LABEL.Name:GetText() == "Westfall|cffffd100 (11-21)|r", AREA_LABEL.Name:GetText())
+  -- A build might show the game's own range on the line under the name instead, the way retail
+  -- shows battle pet levels there; the name is then bare, but the zone still has a range already.
+  GAME_LEVELS_ON_DESCRIPTION = true
+  UpdateAreaLabel()
+  check("where the game shows its own range under the name, none is added to the name either",
+    AREA_LABEL.Name:GetText() == "Westfall" and AREA_LABEL.Description:GetText() == "Level 11-21", AREA_LABEL.Name:GetText())
+  GAME_LEVELS_ON_DESCRIPTION = false
+  AREA_LABEL.Description:SetText("")
+  GAME_LEVELS = {}
+  POI_LABEL = "Sentinel Hill"
+  UpdateAreaLabel()
+  check("a point of interest's label is left as it is", AREA_LABEL.Name:GetText() == "Sentinel Hill", AREA_LABEL.Name:GetText())
+  POI_LABEL = nil
+  CANVAS_FOCUS = false
+  UpdateAreaLabel()
+  check("nothing is added with the mouse off the map", AREA_LABEL.Name:GetText() == "", AREA_LABEL.Name:GetText())
+  CANVAS_FOCUS = true
+  HOVER = { mapID = 1415, name = "Eastern Kingdoms" }
+  UpdateAreaLabel()
+  check("nor over the map on show itself", AREA_LABEL.Name:GetText() == "", AREA_LABEL.Name:GetText())
+  HOVER = { mapID = 1436, name = "Westfall" }
+  LABEL_WRITES_ON_CHANGE = true
+  UpdateAreaLabel()
+  UpdateAreaLabel()
+  UpdateAreaLabel()
+  local _, ranges = (AREA_LABEL.Name:GetText() or ""):gsub("%(", "")
+  check("frames where the game does not rewrite the name never add a second range", ranges == 1
+    and AREA_LABEL.Name:GetText() == "Westfall|cffffd100 (10-20)|r", AREA_LABEL.Name:GetText())
+  LABEL_WRITES_ON_CHANGE = false
+  AREA_LABEL.lastWritten = nil
+
+  -- Switched off, the game's bare name comes back at once.
+  ns.db.map.zoneLevels = false
+  ns.Refresh()
+  UpdateAreaLabel()
+  check("switched off in the options, the zone shows its bare name", AREA_LABEL.Name:GetText() == "Westfall", AREA_LABEL.Name:GetText())
+  check("and the report says so", (ns.report["zone levels shown"] or ""):find("^no") ~= nil, ns.report["zone levels shown"])
+  ns.db.map.zoneLevels = true
+  ns.Refresh()
+  SlashCmdList["MAPTAB"]("lock")
+  UpdateAreaLabel()
+  check("with Map Tab locked, it adds nothing to the map, the ranges included", AREA_LABEL.Name:GetText() == "Westfall", AREA_LABEL.Name:GetText())
+  SlashCmdList["MAPTAB"]("unlock")
+  UpdateAreaLabel()
+  check("unlocked, the range is back", AREA_LABEL.Name:GetText() == "Westfall|cffffd100 (10-20)|r", AREA_LABEL.Name:GetText())
+
+  -- Nothing that goes wrong in Map Tab's part may stop the game's own label working.
+  local keep = L.RANGES[1436]
+  L.RANGES[1436] = "not a range"
+  local ok = pcall(UpdateAreaLabel)
+  check("a fault in the table stays inside Map Tab: the label still shows the zone", ok and AREA_LABEL.Name:GetText() == "Westfall",
+    AREA_LABEL.Name:GetText())
+  L.RANGES[1436] = keep
+
+  SHOWN_MAP, CANVAS_FOCUS, PLAYER_LEVEL, HOVER = 1440, false, 20, nil
+  UpdateAreaLabel()
+end -- scope
+
+-- ------------------------------------------------------------------
 -- 5. Switching the map off
 -- ------------------------------------------------------------------
 do -- scope: 5
@@ -1440,6 +1636,17 @@ local function Labelled(text)
   end
   return nil
 end
+-- The zone level switch, and the page still fitting its frame with it added.
+local levelSwitch = Labelled("Zone level ranges on the continent map")
+check("the zone level switch is on the World map page", levelSwitch ~= nil)
+levelSwitch:SetChecked(false)
+levelSwitch.scripts.OnClick(levelSwitch)
+check("it writes through to the setting", ns.db.map.zoneLevels == false)
+levelSwitch:SetChecked(true)
+levelSwitch.scripts.OnClick(levelSwitch)
+check("and back on", ns.db.map.zoneLevels == true)
+check("the World map page still fits inside its frame", type(ns.optionsPageHeight) == "table" and type(ns.optionsPageHeight.map) == "number"
+  and ns.optionsPageHeight.map <= ns.optionsPaneHeight, ns.report["page map height"])
 -- Map Tab has one on/off switch, the world map switch, which /maptab lock and unlock flip. The
 -- saved master switch shows through it, so no second switch does the same thing.
 check("there is no separate master switch doing what the map switch does", Labelled("Map Tab is on") == nil)
@@ -2209,6 +2416,37 @@ check("so this character's map settings come over", near(ns.db.map.scale, 1.3, 0
 check("without a word", ChatSaying("Casement") == 0, CHAT[#CHAT])
 `;
 
+
+const areaLabelLate = String.raw`
+-- The map has no data providers yet when Map Tab loads (an older client, or a map built later):
+-- the report says so, and the label is hooked the first time the map opens.
+WorldMapFrame.dataProviders = nil
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+check("with no data providers on the map, the report says why there are no ranges",
+  ns.report["zone levels"] == "the world map keeps no data providers on this client", ns.report["zone levels"])
+WorldMapFrame.dataProviders = { [{}] = true }
+WorldMapFrame:Hide()
+WorldMapFrame:Show()
+check("with providers but no area label among them, it says that instead", not ns.Levels.IsHooked()
+  and ns.report["zone levels"] == "the map's area label was not found", ns.report["zone levels"])
+WorldMapFrame.dataProviders = { [AREA_PROVIDER] = true }
+WorldMapFrame:Hide()
+WorldMapFrame:Show()
+check("once the label exists, it is hooked when the map opens", ns.Levels.IsHooked()
+  and ns.report["zone levels"] == "hooked into the map's area label", ns.report["zone levels"])
+SHOWN_MAP, CANVAS_FOCUS, PLAYER_LEVEL = 1415, true, 20
+HOVER = { mapID = 1436, name = "Westfall" }
+UpdateAreaLabel()
+check("and the range shows", AREA_LABEL.Name:GetText() == "Westfall|cffffd100 (10-20)|r", AREA_LABEL.Name:GetText())
+WorldMapFrame:Hide()
+WorldMapFrame:Show()
+UpdateAreaLabel()
+local _, ranges = (AREA_LABEL.Name:GetText() or ""):gsub("%(", "")
+check("opening the map again does not hook it twice", ranges == 1, AREA_LABEL.Name:GetText())
+`;
+
 // ------------------------------------------------------------------
 // The runner
 // ------------------------------------------------------------------
@@ -2266,6 +2504,7 @@ scenario('Casement stub with nothing new in it', stubNothingNew);
 scenario('Casement stub reported loadable', stubReportedLoadable);
 scenario('nothing present', nothingPresent);
 scenario('no Casement, then the stub turns up', stubTurnsUpLater);
+scenario('area label made after load', areaLabelLate);
 scenario('no addon list API', noAddOnApi, 'NO_ADDON_API=true\n');
 scenario('already brought over', alreadyImported);
 scenario('a second character', secondCharacter);

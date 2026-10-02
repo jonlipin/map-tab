@@ -273,7 +273,7 @@ local function BuildMapPage(parent)
 
 	MapSwitch(layout, "Move and resize the world map", "Map Tab's on and off switch, the one /maptab lock and /maptab unlock turn off and on. Off, Map Tab adds nothing to the map and leaves it entirely to the game: it goes back where the game puts it, at its own size, and the tab and the reveal go with it. Where you left it and the size you gave it are kept for when it is switched on again; Reset forgets them.")
 
-	Note(layout, "Everything Map Tab adds lives in a tab under the map, so nothing covers the map's own interface. Resizing scales the whole window: the grip, the buttons and the slider set the same number, and the map, its pins and its text stay in proportion. The map never goes off screen, and a maximized map is left alone.", 0, 4)
+	Note(layout, "Map Tab's controls live in a tab under the map, so nothing covers the map's own buttons. Resizing scales the whole window: the grip, the buttons and the slider set the same number, and the map, its pins and its text stay in proportion. While the map is maximized, its size and the tab are left alone.", 0, 4)
 
 	Check(layout, "Drag the map by its top bar", "The clear stretches of the top bar move the map. The game's own buttons up there are measured and left alone.",
 		function() return ns.db.map.topBarDrag end,
@@ -324,6 +324,10 @@ local function BuildMapPage(parent)
 		function() return ns.db.map.coordsCursor end,
 		function(value) ns.db.map.coordsCursor = value end, 24)
 
+	Check(layout, "Zone level ranges on the continent map", "Point at a zone on the continent map and its level range follows its name at the top of the map, for example Westfall (10-20). The range is coloured by how hard the zone is for you: red or orange while it is above you, yellow while you are inside it, green or grey once you have outgrown it. The game does this itself for zones it knows the levels of; on this client it knows none, so Map Tab supplies them.",
+		function() return ns.db.map.zoneLevels end,
+		function(value) ns.db.map.zoneLevels = value end)
+
 	Check(layout, "Draw the parts of the map you have not explored", "Paints the unexplored areas in with their real art. Map Tab can only draw an area it knows the art for: what is shipped with it, plus everything any character on this account has ever had revealed. /maptab mapdata says how much of the open map that covers.",
 		function() return ns.db.map.reveal end,
 		function(value) ns.db.map.reveal = value end)
@@ -344,6 +348,13 @@ local function BuildMapPage(parent)
 			ns.Print("the map is back where the game had it.")
 		end },
 	})
+
+	-- The pages have a fixed height, and this one is the fullest; the report and the harness both
+	-- check that nothing runs off its bottom.
+	ns.optionsPageHeight = ns.optionsPageHeight or {}
+	ns.optionsPageHeight.map = layout.y
+	ns.optionsPaneHeight = CONTENT_H - 50
+	report["page map height"] = layout.y .. " of " .. (CONTENT_H - 50)
 end
 
 local function BuildAboutPage(parent)

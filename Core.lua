@@ -12,7 +12,7 @@
 
 local ADDON, ns = ...
 
-ns.version = "1.0.0"
+ns.version = "1.1.0"
 ns.report = {}
 
 local report = ns.report
@@ -58,6 +58,9 @@ ns.defaults = {
 		-- Drawing the unexplored parts of the map, tinted so they can still be told apart.
 		reveal = false,
 		revealTint = "blue",
+		-- A zone's level range after its name, pointing at it on the continent map, coloured by
+		-- how hard it is for you, as the game does where it knows the range itself.
+		zoneLevels = true,
 	},
 
 	-- Where the map was left, in UIParent units.
@@ -199,6 +202,7 @@ function ns.Refresh()
 	if ns.Windows and ns.Windows.Apply then pcall(ns.Windows.Apply) end
 	if ns.Map and ns.Map.Apply then pcall(ns.Map.Apply) end
 	if ns.Reveal and ns.Reveal.Apply then pcall(ns.Reveal.Apply) end
+	if ns.Levels and ns.Levels.Apply then pcall(ns.Levels.Apply) end
 end
 
 -- ------------------------------------------------------------------
@@ -907,6 +911,10 @@ local function Init()
 	if ns.Reveal and ns.Reveal.Init then
 		local ok, err = pcall(ns.Reveal.Init)
 		report["reveal"] = ok and "ok" or ("failed: " .. tostring(err))
+	end
+	if ns.Levels and ns.Levels.Init then
+		local ok, err = pcall(ns.Levels.Init)
+		report["zone level module"] = ok and "ok" or ("failed: " .. tostring(err))
 	end
 	if ns.SetupOptions then
 		local ok, err = pcall(ns.SetupOptions)
