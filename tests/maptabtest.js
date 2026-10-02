@@ -720,8 +720,8 @@ do -- scope: 1b. The TOC matches what is loaded
   local same = #listed == #FILES
   for i, file in ipairs(FILES) do if listed[i] ~= file then same = false end end
   check("the TOC loads exactly the files the harness loads, in that order", same, table.concat(listed, ", "))
-  check("the TOC calls it Map Tab, version 1.1.0, like the code does", TOC_TEXT:find("## Title: Map Tab", 1, true) ~= nil
-    and TOC_TEXT:find("## Version: 1.1.0", 1, true) ~= nil and ns.version == "1.1.0")
+  check("the TOC calls it Map Tab, version 1.1.1, like the code does", TOC_TEXT:find("## Title: Map Tab", 1, true) ~= nil
+    and TOC_TEXT:find("## Version: 1.1.1", 1, true) ~= nil and ns.version == "1.1.1")
   check("the TOC names Map Tab's own saved variables", TOC_TEXT:find("## SavedVariables: MapTabAccountDB", 1, true) ~= nil
     and TOC_TEXT:find("## SavedVariablesPerCharacter: MapTabDB", 1, true) ~= nil)
   check("the TOC's icon is the map scroll", TOC_TEXT:find("## IconTexture: Interface\\Icons\\INV_Misc_Map_01", 1, true) ~= nil)
@@ -1202,11 +1202,12 @@ do -- scope: 4f. Zone level ranges
     count = count + 1
     if type(id) ~= "number" or type(r) ~= "table" or r[1] < 1 or r[2] > 60 or r[1] > r[2] then sane = false end
   end
-  check("the table holds 43 zones, each a range inside 1 to 60", count == 43 and sane, count)
-  check("the report counts them", ns.report["zone level table"] == "43 zones", ns.report["zone level table"])
+  check("the table holds 44 zones, each a range inside 1 to 60", count == 44 and sane, count)
+  check("the report counts them", ns.report["zone level table"] == "44 zones", ns.report["zone level table"])
   check("the Forever zones are in it", L.RANGES[2548] and L.RANGES[2548][1] == 35 and L.RANGES[2548][2] == 45
-    and L.RANGES[2521] and L.RANGES[2521][2] == 12 and L.RANGES[2665] and L.RANGES[2482] and L.RANGES[2482][1] == 60)
-  check("and the zones with no range are not", L.RANGES[1450] == nil and L.RANGES[1453] == nil and L.RANGES[2652] == nil)
+    and L.RANGES[2521] and L.RANGES[2521][2] == 12 and L.RANGES[2665] and L.RANGES[2482] and L.RANGES[2482][1] == 55 and L.RANGES[2482][2] == 60
+    and L.RANGES[2652] and L.RANGES[2652][1] == 40 and L.RANGES[2652][2] == 45)
+  check("and the zones with no range are not", L.RANGES[1450] == nil and L.RANGES[1453] == nil and L.RANGES[1454] == nil)
 
   -- The Eastern Kingdoms, pointing at Westfall.
   SHOWN_MAP, CANVAS_FOCUS, PLAYER_LEVEL = 1415, true, 20
@@ -1236,7 +1237,18 @@ do -- scope: 4f. Zone level ranges
   SHOWN_MAP, PLAYER_LEVEL = 1414, 50
   HOVER = { mapID = 2482, name = "Mount Hyjal" }
   UpdateAreaLabel()
-  check("a zone of a single level shows that level alone", AREA_LABEL.Name:GetText() == "Mount Hyjal|cffff1a1a (60)|r", AREA_LABEL.Name:GetText())
+  check("Mount Hyjal is 55-60, its creatures' levels, and red at 50", AREA_LABEL.Name:GetText() == "Mount Hyjal|cffff1a1a (55-60)|r", AREA_LABEL.Name:GetText())
+  HOVER = { mapID = 2652, name = "Shen'dralas" }
+  PLAYER_LEVEL = 42
+  UpdateAreaLabel()
+  check("Shen'dralas is 40-45, yellow at 42", AREA_LABEL.Name:GetText() == "Shen'dralas|cffffd100 (40-45)|r", AREA_LABEL.Name:GetText())
+  -- No zone in the table is a single level now; the format for one is checked with a stand in.
+  L.RANGES[1450] = { 15, 15 }
+  HOVER = { mapID = 1450, name = "Moonglade" }
+  PLAYER_LEVEL = 20
+  UpdateAreaLabel()
+  check("a zone of a single level shows that level alone", AREA_LABEL.Name:GetText() == "Moonglade|cff808080 (15)|r", AREA_LABEL.Name:GetText())
+  L.RANGES[1450] = nil
   HOVER = { mapID = 1443, name = "Desolace" }
   PLAYER_LEVEL = 33
   UpdateAreaLabel()

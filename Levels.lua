@@ -20,11 +20,13 @@ local Levels = {}
 ns.Levels = Levels
 
 -- Level ranges by UiMap id. The original zones carry the ranges players know from the classic
--- game, which the WoW Forever zone guides list unchanged. The Forever zones come from the same
--- guides and agree with the client's own exploration levels for their sub-areas: Zephras Isle (the
--- Skyborne starting zone, which has two map ids) 1-12, Riverglades 35-45, Mount Hyjal 60. Left out
--- on purpose: the capital cities and Moonglade, which have no range, and Shen'dralas, whose range no
--- source gives yet and the client does not hold.
+-- game, which the WoW Forever zone guides list unchanged. The Forever zones are read off the levels
+-- of their creatures in Wowhead's Forever database, which comes from the beta itself: Zephras Isle
+-- (the Skyborne starting zone, which has two map ids) 1-12, Shen'dralas 40-45, Riverglades 35-45,
+-- Mount Hyjal 55-60. Zephras Isle and Riverglades agree with the zone guides and the wiki, and
+-- Riverglades with the client's own exploration levels; the client holds no levels at all for
+-- Shen'dralas, and the guides' "Mount Hyjal at 60" is when players go there, while its creatures
+-- start at 55. Left out on purpose: the capital cities and Moonglade, which have no range.
 Levels.RANGES = {
 	-- Eastern Kingdoms
 	[1429] = { 1, 10 },  -- Elwynn Forest
@@ -68,7 +70,8 @@ Levels.RANGES = {
 	[1449] = { 48, 55 }, -- Un'Goro Crater
 	[1451] = { 55, 60 }, -- Silithus
 	[1452] = { 55, 60 }, -- Winterspring
-	[2482] = { 60, 60 }, -- Mount Hyjal
+	[2652] = { 40, 45 }, -- Shen'dralas
+	[2482] = { 55, 60 }, -- Mount Hyjal
 	-- Zephras Isle, under both of its map ids
 	[2521] = { 1, 12 },
 	[2665] = { 1, 12 },
@@ -137,7 +140,7 @@ local function ColourCode(c)
 	return string.format("|cff%02x%02x%02x", byte(c.r), byte(c.g), byte(c.b))
 end
 
--- " (10-20)" in the colour the game would give it, or " (60)" for a zone of a single level; nil for
+-- " (10-20)" in the colour the game would give it, or " (15)" for a zone of a single level; nil for
 -- a zone with no range. The colour follows the game's own rule: a zone above you is coloured by its
 -- lowest level, one below you by two under its highest (so a zone you have outgrown is not yellow),
 -- and one you are inside is yellow.

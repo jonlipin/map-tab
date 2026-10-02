@@ -63,8 +63,8 @@ windows, and every character's saved bank, bags and guild bank, are in the separ
   orange while it is above you, yellow while you are inside it, green or grey once you have
   outgrown it.
 - Every zone on Kalimdor and the Eastern Kingdoms has its range, plus the WoW: Forever zones
-  Zephras Isle (1-12), Riverglades (35-45) and Mount Hyjal (60). The cities and Moonglade have no
-  range, and Shen'dralas has none until its range is known.
+  Zephras Isle (1-12), Shen'dralas (40-45), Riverglades (35-45) and Mount Hyjal (55-60), read off
+  the levels of their creatures in the beta. The cities and Moonglade have no range.
 - On by default, with its own switch in the options.
 
 **Unexplored areas (optional)**
@@ -203,9 +203,9 @@ way Casement's data can be waiting at the first login runs in a fresh Lua state 
 `tests/README.md` lists every scenario.
 
 ```
-node tests/maptabtest.js              # 496 checks
-node tests/maptabtest.js --bare       # every UI template missing (496 checks)
-node tests/maptabtest.js --noenum     # proves Map Tab never reads the bag enums (496 checks)
+node tests/maptabtest.js              # 498 checks
+node tests/maptabtest.js --bare       # every UI template missing (498 checks)
+node tests/maptabtest.js --noenum     # proves Map Tab never reads the bag enums (498 checks)
 node tests/maptabtest.js --verbose    # also prints the addon's chat output
 ```
 

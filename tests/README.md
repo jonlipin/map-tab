@@ -9,9 +9,9 @@ map is scaled, and putting the map back after the game has re-anchored it.
 node tests/maptabtest.js [addon dir] [--bare] [--verbose] [--noenum]
 ```
 
-- no flags: 496 checks against the normal client
-- `--bare`: every UI template is missing, so every fallback path runs (496 checks)
-- `--noenum`: no `Enum.BagIndex`, which Map Tab never reads (496 checks)
+- no flags: 498 checks against the normal client
+- `--bare`: every UI template is missing, so every fallback path runs (498 checks)
+- `--noenum`: no `Enum.BagIndex`, which Map Tab never reads (498 checks)
 - `--verbose`: prints everything the addon puts in the chat frame, and each scenario's tally
 
 The addon directory defaults to the repository the script sits in.
