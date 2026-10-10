@@ -168,6 +168,8 @@ local function Slider(layout, label, minV, maxV, step, get, set, format, tooltip
 		used = "bare"
 	end
 	report["slider template"] = used
+	-- For a page that grays the slider out along with its labels.
+	slider.mtCaption, slider.mtValueText = caption, value
 
 	-- OptionsSliderTemplate brings its own captions, we draw our own.
 	for _, suffix in ipairs({ "Low", "High", "Text" }) do
@@ -324,7 +326,7 @@ local function BuildMapPage(parent)
 		function() return ns.db.map.coordsCursor end,
 		function(value) ns.db.map.coordsCursor = value end, 24)
 
-	Check(layout, "Zone level ranges on the continent map", "Point at a zone on the continent map and its level range follows its name at the top of the map, for example Westfall (10-20). The range is coloured by how hard the zone is for you: red or orange while it is above you, yellow while you are inside it, green or grey once you have outgrown it. The game does this itself for zones it knows the levels of; on this client it knows none, so Map Tab supplies them.",
+	Check(layout, "Zone level ranges on the continent map", "Point at a zone on the continent map and its level range follows its name at the top of the map, for example Westfall (10-20). The range is colored by how hard the zone is for you: red or orange while it is above you, yellow while you are inside it, green or gray once you have outgrown it. The game does this itself for zones it knows the levels of; on this client it knows none, so Map Tab supplies them.",
 		function() return ns.db.map.zoneLevels end,
 		function(value) ns.db.map.zoneLevels = value end)
 
@@ -336,7 +338,7 @@ local function BuildMapPage(parent)
 		{ value = "none", label = "No tint" },
 		{ value = "blue", label = "Blue" },
 		{ value = "sepia", label = "Sepia" },
-		{ value = "grey", label = "Grey" },
+		{ value = "gray", label = "Gray" },
 	}, function() return ns.db.map.revealTint end,
 		function(value) ns.db.map.revealTint = value end,
 		"So the drawn in areas can still be told from the ones you have actually been to.", 24)
@@ -357,6 +359,71 @@ local function BuildMapPage(parent)
 	report["page map height"] = layout.y .. " of " .. (CONTENT_H - 50)
 end
 
+-- The window style. It has a page of its own: the World map page has no room left. The controls
+-- here keep the game's look in every style, since the same controls show in the game's own
+-- options panel, which no style reaches into.
+local function BuildLookPage(parent)
+	local Styles = ns.Styles
+	local layout = NewLayout(parent)
+	Header(layout, "Look")
+
+	Note(layout, "The window style dresses what Map Tab draws itself: the tab under the map, the options window and the copy box. The world map, with its zone and level labels, keeps the look the game or EllesmereUI gives it, and so do these options.", 0, 3)
+
+	local holder = CreateFrame("Frame", nil, layout.parent)
+	holder:SetSize(PANE_W, 24)
+	local styleButton = ns.Button(holder, "Window style", 230, 22)
+	styleButton:SetPoint("LEFT", 0, 0)
+	styleButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	styleButton:SetScript("OnClick", function(_, button)
+		if not Styles then return end
+		Styles.Cycle(button == "RightButton" and -1 or 1)
+		ns.Refresh()
+		ns.SyncOptions()
+	end)
+	styleButton:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText("Window style", 1, 1, 1)
+		for _, line in ipairs(Styles and Styles.HELP or {}) do GameTooltip:AddLine(line, nil, nil, nil, true) end
+		GameTooltip:AddLine("Left-click for the next style, right-click for the previous one.", 0.6, 0.6, 0.6, true)
+		GameTooltip:Show()
+	end)
+	styleButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	Place(layout, holder, 30)
+
+	-- What is in use, and what a reload would change.
+	local note = Note(layout, "", 0, 2)
+
+	local opacity = Slider(layout, "Dark background opacity", 0, 100, 5,
+		function() return math.floor((ns.db.darkAlpha or 0.92) * 100 + 0.5) end,
+		function(value)
+			ns.db.darkAlpha = value / 100
+			if Styles then Styles.SetDarkAlpha(ns.db.darkAlpha) end
+		end,
+		function(v) return v .. "%" end)
+	opacity:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText("Dark background opacity", 1, 1, 1)
+		GameTooltip:AddLine("How much of the world shows through the Dark style's windows.", nil, nil, nil, true)
+		if ns.db.style ~= "dark" then GameTooltip:AddLine("Applies to the Dark style only.", 1, 0.82, 0, true) end
+		GameTooltip:Show()
+	end)
+
+	widgets[#widgets + 1] = { refresh = function()
+		styleButton:SetText("Window style: " .. (Styles and Styles.Name(ns.db.style) or "Blizzard"))
+		note:SetText(Styles and Styles.Note() or "")
+		-- The slider only means something for Dark, so it is grayed out for the others.
+		local dark = ns.db.style == "dark"
+		opacity:SetEnabled(dark)
+		opacity:SetAlpha(dark and 1 or 0.5)
+		opacity.mtCaption:SetFontObject(dark and "GameFontHighlight" or "GameFontDisable")
+		opacity.mtValueText:SetFontObject(dark and "GameFontNormalSmall" or "GameFontDisable")
+	end }
+
+	ns.optionsPageHeight = ns.optionsPageHeight or {}
+	ns.optionsPageHeight.look = layout.y
+	report["page look height"] = layout.y .. " of " .. (CONTENT_H - 50)
+end
+
 local function BuildAboutPage(parent)
 	local layout = NewLayout(parent)
 	Header(layout, "About Map Tab")
@@ -372,6 +439,7 @@ local function BuildAboutPage(parent)
 		"/maptab coords puts your coordinates in a box to copy",
 		"/maptab mapdata says how much of the open map the reveal knows",
 		"/maptab grips outlines the parts of the map you can drag",
+		"/maptab style auto, blizzard or dark sets the window style",
 		"/maptab debug prints what resolved on this client",
 	}
 	for _, line in ipairs(lines) do Note(layout, "|cffffff00" .. line .. "|r", 12, 1) end
@@ -388,6 +456,7 @@ end
 
 local PAGES = {
 	{ key = "map", label = "World map", build = BuildMapPage },
+	{ key = "look", label = "Look", build = BuildLookPage },
 	{ key = "about", label = "About", build = BuildAboutPage },
 }
 

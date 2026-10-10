@@ -9,9 +9,9 @@ map is scaled, and putting the map back after the game has re-anchored it.
 node tests/maptabtest.js [addon dir] [--bare] [--verbose] [--noenum]
 ```
 
-- no flags: 498 checks against the normal client
-- `--bare`: every UI template is missing, so every fallback path runs (498 checks)
-- `--noenum`: no `Enum.BagIndex`, which Map Tab never reads (498 checks)
+- no flags: 615 checks against the normal client
+- `--bare`: every UI template is missing, so every fallback path runs (610 checks)
+- `--noenum`: no `Enum.BagIndex`, which Map Tab never reads (615 checks)
 - `--verbose`: prints everything the addon puts in the chat frame, and each scenario's tally
 
 The addon directory defaults to the repository the script sits in.
@@ -27,7 +27,7 @@ Each scenario runs in a fresh Lua state:
   off on the page just as `/maptab lock` does, and follows the size slider as it moves; and it
   points at zones on the continent map through a stand in for the game's area label, which
   writes the bare zone name every frame the way the real one does on this client: the range is
-  added in the game's difficulty colour for each level band, a single level shows alone, zones
+  added in the game's difficulty color for each level band, a single level shows alone, zones
   with no range keep their bare name, and nothing is added where the game shows its own range
   (after the name or under it), over a point of interest's label, off the map, over the map on
   show, on frames where the label does not rewrite the name, with the option off, or with the
@@ -76,6 +76,23 @@ Each scenario runs in a fresh Lua state:
 - a character that never ran Casement, which gets Casement's account copy without a position;
 - the map's area label made after Map Tab loads: the report says why there are no ranges (no data
   providers, or none of them the label), the label is hooked the first time the map opens with it,
-  and opening the map again does not hook it twice.
+  and opening the map again does not hook it twice;
+- the window styles (Styles.lua, shared with the other addons, and MapTab_Skins.lua):
+  - Blizzard: Automatic without EllesmereUI draws nothing and fades nothing; the Look page fits,
+    its style button cycles both ways with a tooltip for every style, its note says what is in
+    use, the opacity slider is grayed out, and `/maptab style` sets and reports the style; Dark
+    chosen from there is drawn at once on the options window, the copy box and the tab already
+    built, with no reload;
+  - Dark saved from an earlier session: drawn once the world is up, then on the tab (made when the
+    map is unlocked) and the copy box as they are made; the dividers keep showing, the grip keeps
+    the game's grabber, the close button sits above everything; the opacity slider is live and
+    repaints every Dark window at once; the world map, its zone label and the options controls are
+    never drawn on; leaving Dark brings up the reload prompt, coming back takes it away, and
+    resetting all settings goes back to Automatic;
+  - EllesmereUI, through a stand in for its facade that records every call: the windows are
+    shelled (the close button raised above its border), the tab is a panel with its buttons,
+    icons and text handed over, Dark draws nothing beside it, and the map, its label and the
+    options are never handed over; with Blizzard chosen nothing is handed over, and with its
+    Blizzard Skins+ module off the report says so.
 
 It needs `fengari` on the module path; the copy this was developed against is not checked in.

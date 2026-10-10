@@ -266,6 +266,7 @@ local function ResetButton(parent)
 	local icon = button:CreateTexture(nil, "ARTWORK")
 	icon:SetPoint("TOPLEFT", 1, -1)
 	icon:SetPoint("BOTTOMRIGHT", -1, 1)
+	button.mtIcon = icon
 	local path
 	for _, candidate in ipairs(RESET_ICONS) do
 		if ns.TextureExists(candidate) then path = candidate break end
@@ -280,6 +281,7 @@ local function ResetButton(parent)
 		text:SetAllPoints()
 		text:SetJustifyH("CENTER")
 		text:SetText("100%")
+		button.mtText = text
 		button:SetWidth(40)
 		report["map reset icon"] = "text, the icon did not load"
 	end
@@ -414,6 +416,7 @@ local function BuildCoords(parent)
 	cursorLine:SetPoint("TOPLEFT", 0, -13)
 	cursorLine:SetJustifyH("LEFT")
 	cursorLine:SetText("Cursor  --")
+	coordsPart.player, coordsPart.cursor = playerLine, cursorLine
 
 	-- Read ten times a second while the tab is up; the map's own OnUpdate would be overkill.
 	coordsPart:SetScript("OnUpdate", function(_, elapsed)
@@ -437,6 +440,7 @@ local function BuildCopyButton(parent)
 	local icon = copyButton:CreateTexture(nil, "ARTWORK")
 	icon:SetPoint("TOPLEFT", 1, -1)
 	icon:SetPoint("BOTTOMRIGHT", -1, 1)
+	copyButton.mtIcon = icon
 	local path
 	for _, candidate in ipairs(COPY_ICONS) do
 		if ns.TextureExists(candidate) then path = candidate break end
@@ -449,6 +453,7 @@ local function BuildCopyButton(parent)
 		local text = copyButton:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 		text:SetAllPoints()
 		text:SetText("Copy")
+		copyButton.mtText = text
 		copyButton:SetWidth(36)
 	end
 	report["map copy icon"] = path or "text"
@@ -500,11 +505,18 @@ local function BuildTab()
 	tab.parts = {}
 	local parts = tab.parts
 
+	-- The dividers are drawn on a frame of their own over the tab: a window style fades every
+	-- texture on the tab itself to lay its own backdrop, and these have to stay.
+	local lines = CreateFrame("Frame", nil, tab)
+	lines.mtOurs = true
+	lines:SetAllPoints()
+	tab.lines = lines
+
 	-- The coordinates go at the left end, so switching them on grows the tab leftwards, away
 	-- from the sizing controls at the right.
 	parts.coords = BuildCoords(tab)
 	parts.copy = BuildCopyButton(tab)
-	local divider2 = tab:CreateTexture(nil, "ARTWORK")
+	local divider2 = lines:CreateTexture(nil, "ARTWORK")
 	divider2:SetColorTexture(1, 1, 1, 0.16)
 	divider2:SetSize(1, 18)
 	parts.divider2 = divider2
@@ -523,7 +535,7 @@ local function BuildTab()
 
 	parts.reset = ResetButton(tab)
 
-	local divider = tab:CreateTexture(nil, "ARTWORK")
+	local divider = lines:CreateTexture(nil, "ARTWORK")
 	divider:SetColorTexture(1, 1, 1, 0.16)
 	divider:SetSize(1, 18)
 	parts.divider = divider
@@ -555,6 +567,9 @@ local function BuildTab()
 		GameTooltip:Show()
 	end)
 	grip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+	-- The tab is built the first time the map opens, after the window style was drawn.
+	if ns.SkinTab then ns.SkinTab(tab) end
 end
 
 -- The order the controls sit in, left to right. The tab is only as wide as the ones switched on,

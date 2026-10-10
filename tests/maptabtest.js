@@ -17,7 +17,7 @@ const path = require('path');
 const { lua, lauxlib, lualib, to_luastring } = require('fengari');
 const argDir = process.argv.slice(2).find(a => !a.startsWith('--'));
 const DIR = (argDir || path.resolve(__dirname, '..')).split(path.sep).join('/').replace(/\/?$/, '/');
-const files = ['Core.lua', 'Windows.lua', 'Map.lua', 'Data/MapOverlays.lua', 'Reveal.lua', 'Levels.lua', 'Options.lua'];
+const files = ['Core.lua', 'Windows.lua', 'Map.lua', 'Data/MapOverlays.lua', 'Reveal.lua', 'Levels.lua', 'Options.lua', 'Styles.lua', 'MapTab_Skins.lua'];
 
 const stub = String.raw`
 local VERBS = { "Set", "Get", "Is", "Create", "Register", "Enable", "Clear", "Hook", "Start", "Stop", "Has", "Num", "Add", "Unregister", "Disable", "Raise", "Lower", "Lock", "Unlock", "Show", "Hide", "Insert", "Toggle" }
@@ -72,7 +72,7 @@ local unpack = unpack or table.unpack
 
 local function obj(kind, template, name)
   local o = { shown = true, scripts = {}, w = 0, h = 0, scale = 1, kind = kind, template = template,
-    name = name, points = {}, level = 1, id = 0, mouse = false, enabled = true, kids = {} }
+    name = name, points = {}, level = 1, id = 0, mouse = false, enabled = true, kids = {}, regions = {} }
   return setmetatable(o, { __index = function(t, k)
     -- Real child lists matter here: the addon walks the map's children to find the clear parts of
     -- its title bar and to work out what it has to sit above.
@@ -83,6 +83,15 @@ local function obj(kind, template, name)
     if k == "SetShown" then return function(s, v) if v then s:Show() else s:Hide() end end end
     if k == "IsShown" or k == "IsVisible" then return function(s) return s.shown end end
     if k == "GetObjectType" then return function(s) return s.kind end end
+    -- What a window style walks: the textures and font strings made on a frame, and their kind.
+    if k == "GetRegions" then return function(s) return unpack(s.regions or {}) end end
+    if k == "IsObjectType" then return function(s, what) return tostring(s.kind):lower() == tostring(what):lower() end end
+    -- Events are recorded, so the frames Styles.lua makes for itself can be fired at.
+    if k == "RegisterEvent" then return function(s, e) s.events = s.events or {} s.events[e] = true end end
+    if k == "UnregisterEvent" then return function(s, e) if s.events then s.events[e] = nil end end end
+    if k == "UnregisterAllEvents" then return function(s) s.events = {} end end
+    if k == "SetTextColor" then return function(s, r, g, b) s.textColor = { r, g, b } end end
+    if k == "SetGradient" then return function(s, orientation, low, high) s.gradient = { low, high } end end
     if k == "GetName" then return function(s) return s.name end end
     if k == "GetParent" then return function(s) return s.parent end end
     if k == "SetParent" then return function(s, p)
@@ -193,10 +202,14 @@ local function obj(kind, template, name)
     if k == "LockHighlight" then return function(s) s.highlighted = true end end
     if k == "UnlockHighlight" then return function(s) s.highlighted = false end end
     if k == "CreateTexture" then return function(s, n, layer, tmpl, sub)
-      local r = obj("texture") r.parent = s r.layer = layer r.sub = sub TEXTURES[#TEXTURES + 1] = r return r
+      local r = obj("texture") r.parent = s r.layer = layer r.sub = sub TEXTURES[#TEXTURES + 1] = r
+      s.regions[#s.regions + 1] = r
+      return r
     end end
     if k == "CreateFontString" then return function(s, n, layer, font)
-      local r = obj("fontstring") r.parent = s r.font = font FONTSTRINGS[#FONTSTRINGS + 1] = r return r
+      local r = obj("fontstring") r.parent = s r.font = font FONTSTRINGS[#FONTSTRINGS + 1] = r
+      s.regions[#s.regions + 1] = r
+      return r
     end end
     if k:sub(1, 6) == "Create" then return function() return obj("region") end end
     if isMethod(k) then return function() end end
@@ -215,8 +228,18 @@ function CreateFrame(kind, name, parent, template)
   if template == "ButtonFrameTemplate" or template == "DefaultPanelFlatTemplate" or template == "DefaultPanelTemplate" then
     f.NineSlice = obj("Frame") f.TitleText = obj("fontstring") f.Inset = obj("Frame")
   end
+  if template == "ButtonFrameTemplate" or template == "BasicFrameTemplate" then
+    -- These bring their own close button, whose click is the template's (the DefaultPanel ones do not).
+    local close = obj("Button", "UIPanelCloseButton")
+    close.parent = f
+    f.kids[#f.kids + 1] = close
+    close.scripts.OnClick = function(...) return UIPanelCloseButton_OnClick(...) end
+    FRAMES[#FRAMES + 1] = close
+    f.CloseButton = close
+  end
   if template == "TooltipBackdropTemplate" or template == "BackdropTemplate" then f.SetBackdrop = function(s, b) s.backdrop = b end end
   if template == "UIPanelButtonTemplate" then f.fontString = obj("fontstring") end
+  if template == "UIPanelCloseButton" then f.scripts.OnClick = function(...) return UIPanelCloseButton_OnClick(...) end end
   FRAMES[#FRAMES + 1] = f
   if name then _G[name] = f end
   return f
@@ -228,6 +251,7 @@ DEFAULT_CHAT_FRAME = { AddMessage = function(_, m) CHAT[#CHAT + 1] = m if VERBOS
 CHAT = {}
 SlashCmdList = {} UISpecialFrames = {} tinsert = table.insert
 time = os.time
+function CreateColor(r, g, b, a) return { r = r, g = g, b = b, a = a } end
 date = os.date
 
 NOW = 1000
@@ -277,8 +301,30 @@ function ChatEdit_InsertLink(link) INSERTED = link end
 INSERTED, MOVING, OPENED_CHAT = false, false, false
 
 UIPanelWindows = { BankFrame = { area = "left" }, GuildBankFrame = { area = "left" } }
-function ShowUIPanel(f) if f then f:Show() end end
-function HideUIPanel(f) if f then f:Hide() end end
+-- In combat the game refuses ShowUIPanel and HideUIPanel to addon code (CheckProtectedFunctionsAllowed:
+-- InCombatLockdown and not issecure, which addon code never is), with the "Interface action
+-- blocked" message and nothing else; BLOCKED counts them.
+IN_COMBAT, BLOCKED = false, 0
+function InCombatLockdown() return IN_COMBAT end
+function ShowUIPanel(f)
+  if not f then return end
+  if IN_COMBAT then BLOCKED = BLOCKED + 1 return end
+  f:Show()
+end
+function HideUIPanel(f)
+  if not f then return end
+  if IN_COMBAT then BLOCKED = BLOCKED + 1 return end
+  f:Hide()
+end
+-- The close button template's own click, as the client's SharedUIPanelTemplates.lua has it.
+function UIPanelCloseButton_OnClick(self)
+  local parent = self:GetParent()
+  if parent then
+    local continueHide = true
+    if parent.onCloseCallback then continueHide = parent.onCloseCallback(self) end
+    if continueHide then HideUIPanel(parent) end
+  end
+end
 
 NO_ENUM = NO_ENUM or false
 if not NO_ENUM then
@@ -408,7 +454,7 @@ C_MapExplorationInfo = {
 -- game's own range only when C_Map.GetMapLevels has one (on this client it never does); a point of
 -- interest's label wins over the zone's. With LABEL_WRITES_ON_CHANGE it rewrites the name only when
 -- the text it wants differs from the last it wrote, the way the game's label skips a frame that is
--- not dirty. In --bare the game's quest difficulty colours are missing, so Map Tab's own are used.
+-- not dirty. In --bare the game's quest difficulty colors are missing, so Map Tab's own are used.
 PLAYER_LEVEL = 20
 function UnitLevel() return PLAYER_LEVEL end
 HOVER = nil
@@ -720,8 +766,8 @@ do -- scope: 1b. The TOC matches what is loaded
   local same = #listed == #FILES
   for i, file in ipairs(FILES) do if listed[i] ~= file then same = false end end
   check("the TOC loads exactly the files the harness loads, in that order", same, table.concat(listed, ", "))
-  check("the TOC calls it Map Tab, version 1.1.1, like the code does", TOC_TEXT:find("## Title: Map Tab", 1, true) ~= nil
-    and TOC_TEXT:find("## Version: 1.1.1", 1, true) ~= nil and ns.version == "1.1.1")
+  check("the TOC calls it Map Tab, version 1.2.0, like the code does", TOC_TEXT:find("## Title: Map Tab", 1, true) ~= nil
+    and TOC_TEXT:find("## Version: 1.2.0", 1, true) ~= nil and ns.version == "1.2.0")
   check("the TOC names Map Tab's own saved variables", TOC_TEXT:find("## SavedVariables: MapTabAccountDB", 1, true) ~= nil
     and TOC_TEXT:find("## SavedVariablesPerCharacter: MapTabDB", 1, true) ~= nil)
   check("the TOC's icon is the map scroll", TOC_TEXT:find("## IconTexture: Interface\\Icons\\INV_Misc_Map_01", 1, true) ~= nil)
@@ -1224,14 +1270,14 @@ do -- scope: 4f. Zone level ranges
   check("orange at three or four above you", AREA_LABEL.Name:GetText() == "Westfall|cffff8040 (10-20)|r", AREA_LABEL.Name:GetText())
   PLAYER_LEVEL = 21
   UpdateAreaLabel()
-  check("still yellow just past the top, as the game colours a zone below you by two under its top",
+  check("still yellow just past the top, as the game colors a zone below you by two under its top",
     AREA_LABEL.Name:GetText() == "Westfall|cffffd100 (10-20)|r", AREA_LABEL.Name:GetText())
   PLAYER_LEVEL = 23
   UpdateAreaLabel()
   check("green once you have outgrown it", AREA_LABEL.Name:GetText() == "Westfall|cff40bf40 (10-20)|r", AREA_LABEL.Name:GetText())
   PLAYER_LEVEL = 40
   UpdateAreaLabel()
-  check("grey once it is far below you", AREA_LABEL.Name:GetText() == "Westfall|cff808080 (10-20)|r", AREA_LABEL.Name:GetText())
+  check("gray once it is far below you", AREA_LABEL.Name:GetText() == "Westfall|cff808080 (10-20)|r", AREA_LABEL.Name:GetText())
 
   -- Kalimdor, and the Forever zones.
   SHOWN_MAP, PLAYER_LEVEL = 1414, 50
@@ -1729,6 +1775,59 @@ ns.SyncOptions()
 end -- scope
 
 -- ------------------------------------------------------------------
+-- 13b. The X closes Map Tab's own windows in combat
+-- ------------------------------------------------------------------
+do -- scope: 13b
+-- The X's template click goes through HideUIPanel, which the game refuses to addon code in combat
+-- ("Interface action blocked"). Hiding a window of our own is allowed then, and that is what the X does.
+local windows = { MapTabWindow, MapTabCopyBox }
+local closed, tried = 0, 0
+for _, frame in ipairs(windows) do
+  local close = frame and frame.mtClose
+  if close and close.scripts.OnClick then
+    tried = tried + 1
+    frame:Show()
+    IN_COMBAT = true
+    local blocked = BLOCKED
+    close.scripts.OnClick(close, "LeftButton")
+    if not frame.shown and BLOCKED == blocked then closed = closed + 1 end
+    IN_COMBAT = false
+    frame:Hide()
+  end
+end
+check("in combat the X closes the options window and the copy box, nothing blocked", BARE and tried == 0 or (tried == 2 and closed == 2),
+  closed .. "/" .. tried)
+-- And out of combat as before.
+local closes = 0
+for _, frame in ipairs(windows) do
+  local close = frame and frame.mtClose
+  if close and close.scripts.OnClick then
+    frame:Show()
+    close.scripts.OnClick(close, "LeftButton")
+    if not frame.shown then closes = closes + 1 end
+  end
+end
+check("out of combat the X closes them as before", BARE and closes == 0 or closes == 2, closes)
+-- A window whose X comes with its template (ButtonFrameTemplate, when the flat panels are missing).
+if not BARE then
+  local savedPanel = ns.report["window panel"]
+  BAD_TEMPLATES.DefaultPanelFlatTemplate, BAD_TEMPLATES.DefaultPanelTemplate = true, true
+  local panel = ns.CreatePanel(nil)
+  BAD_TEMPLATES.DefaultPanelFlatTemplate, BAD_TEMPLATES.DefaultPanelTemplate = nil, nil
+  ns.report["window panel"] = savedPanel
+  local close = panel.mtClose
+  local own = close ~= nil and close == panel.CloseButton
+  panel:Show()
+  IN_COMBAT = true
+  local blocked = BLOCKED
+  if close then close.scripts.OnClick(close, "LeftButton") end
+  IN_COMBAT = false
+  check("the template's own X closes its window in combat too", own and not panel.shown and BLOCKED == blocked,
+    tostring(panel.mtTemplate) .. " own=" .. tostring(own) .. " shown=" .. tostring(panel.shown))
+end
+end -- scope
+
+-- ------------------------------------------------------------------
 -- 14. Saved variables
 -- ------------------------------------------------------------------
 do -- scope: 14
@@ -1909,13 +2008,13 @@ CasementDB.positions.worldmap = { x = 300, y = 210 }
 CasementDB.map.coordsCursor = false
 CasementDB.map.revealTint = "blue"
 CasementDB.dragModifier = "shift"
-ns.db.map.revealTint = "grey"
+ns.db.map.revealTint = "gray"
 CasementAccountDB.overlays[20] = { ["1:1:1:1"] = "5" }
 fire("PLAYER_LOGOUT")
 check("at logout, the size set in the old Casement since login comes over", near(ns.db.map.scale, 1.2, 0.001), ns.db.map.scale)
 check("and where the map was moved to", ns.db.positions.worldmap and ns.db.positions.worldmap.x == 300 and ns.db.positions.worldmap.y == 210)
 check("and a switch flipped there, and its drag key", ns.db.map.coordsCursor == false and ns.db.dragModifier == "shift")
-check("but not over a setting changed in Map Tab since login", ns.db.map.revealTint == "grey", ns.db.map.revealTint)
+check("but not over a setting changed in Map Tab since login", ns.db.map.revealTint == "gray", ns.db.map.revealTint)
 check("a setting nobody changed stays as it came over", ns.db.map.reveal == true and ns.db.showGrips == true)
 check("map areas the old Casement learned since login are merged in", MapTabAccountDB.overlays[20] and MapTabAccountDB.overlays[20]["1:1:1:1"] == "5")
 check("the account copy written at logout has the followed values", MapTabAccountDB.profile.map.scale == 1.2 and MapTabAccountDB.profile.positions.worldmap.x == 300)
@@ -2225,6 +2324,41 @@ check("no chat line", ChatSaying("Casement") == 0)
 check("the report says it was done before", ns.report["casement data"] == "already brought over", ns.report["casement data"])
 `;
 
+const oldGrayTint = String.raw`
+-- The gray tint was saved as "grey" before the American spelling. A character's table, and the
+-- account copy a new character adopts, both load as "gray".
+MapTabAccountDB = { importedCasement = true, overlays = {} }
+MapTabDB = { importedCasement = true, map = { reveal = true, revealTint = "grey" } }
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+check("a tint saved as grey loads as gray", ns.db.map.revealTint == "gray", ns.db.map.revealTint)
+check("and the account copy is written with it", MapTabAccountDB.profile.map.revealTint == "gray", MapTabAccountDB.profile.map.revealTint)
+local grayTint
+for _, entry in ipairs(ns.Reveal.TINTS) do if entry.value == "gray" then grayTint = entry end end
+check("the reveal knows the gray tint by that name", grayTint ~= nil and grayTint.label == "Gray" and grayTint.color ~= nil)
+MapTabAccountDB.profile.map.revealTint = "grey"
+MapTabDB = {}
+fire("PLAYER_LOGIN")
+check("a new character adopting an account copy saved as grey gets gray", ns.report["db player login"] == "adopted the account copy"
+  and ns.db.map.revealTint == "gray", ns.db.map.revealTint)
+`;
+
+const oldGrayTintFromCasement = String.raw`
+-- Casement saved the gray tint as "grey" too; it comes over as "gray".
+ADDONS.Casement = { title = "Casement (old data)", loadable = false, lod = true, reason = "DEMAND_LOADED", onLoad = function()
+  CasementAccountDB = CasementAccount()
+  CasementDB = CasementCharacter()
+  CasementDB.map.revealTint = "grey"
+end }
+MapTabDB = {}
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+check("Casement's grey tint came over as gray", ns.db.map.revealTint == "gray", ns.db.map.revealTint)
+check("Casement's own table is only read", CasementDB.map.revealTint == "grey")
+`;
+
 const secondCharacter = String.raw`
 -- The account's share came over when another character logged in; this character has never run
 -- Map Tab, so its table is empty and adopts the account copy (which carries the first character's
@@ -2460,6 +2594,367 @@ check("opening the map again does not hook it twice", ranges == 1, AREA_LABEL.Na
 `;
 
 // ------------------------------------------------------------------
+// Window styles: Blizzard, Dark and EllesmereUI (Styles.lua and MapTab_Skins.lua)
+// ------------------------------------------------------------------
+
+// Helpers every style scenario shares.
+const stylesCommon = String.raw`
+-- Fires an event at every frame that registered it, as the game does: Styles.lua draws the
+-- chosen style from a frame of its own at PLAYER_ENTERING_WORLD.
+function fireAll(event, ...)
+  local list = {}
+  for _, f in ipairs(FRAMES) do if f.events and f.events[event] and f.scripts.OnEvent then list[#list + 1] = f end end
+  for _, f in ipairs(list) do f.scripts.OnEvent(f, event, ...) end
+end
+-- What Dark draws behind a window, panel or button sits in the BACKGROUND layer at sublevels -8
+-- to -5, where nothing of Map Tab's own or the game's is.
+function DarkMarks(frame)
+  local n = 0
+  for _, t in ipairs(TEXTURES) do
+    if t.parent == frame and t.layer == "BACKGROUND" and type(t.sub) == "number" and t.sub <= -5 then n = n + 1 end
+  end
+  return n
+end
+function Layer(frame, layer)
+  local n = 0
+  for _, t in ipairs(TEXTURES) do if t.parent == frame and t.layer == layer then n = n + 1 end end
+  return n
+end
+function Backdrop(frame)
+  for _, t in ipairs(TEXTURES) do
+    if t.parent == frame and t.layer == "BACKGROUND" and t.sub == -8 then return t end
+  end
+  return nil
+end
+function SkinErrors()
+  local out = {}
+  for k, v in pairs(NS.report) do if tostring(k):find("^skin error") then out[#out + 1] = k .. ": " .. tostring(v) end end
+  return out
+end
+function LookWidgets()
+  local button, slider
+  for _, f in ipairs(FRAMES) do
+    if f.kind == "Button" and type(f.text) == "string" and f.text:find("^Window style") then button = f end
+    if f.mtCaption and f.mtCaption.text == "Dark background opacity" then slider = f end
+  end
+  return button, slider
+end
+function NoteShown(text)
+  for _, fs in ipairs(FONTSTRINGS) do if fs.text == text then return true end end
+  return false
+end
+function TooltipHas(text)
+  for _, line in ipairs(GameTooltip.lines) do if line[1] == text then return true end end
+  return false
+end
+function Grayed(slider)
+  return slider ~= nil and slider.enabled == false and slider.alpha == 0.5
+    and slider.mtCaption.font == "GameFontDisable" and slider.mtValueText.font == "GameFontDisable"
+end
+function Live(slider)
+  return slider ~= nil and slider.enabled == true and slider.alpha == 1
+    and slider.mtCaption.font == "GameFontHighlight" and slider.mtValueText.font == "GameFontNormalSmall"
+end
+function PromptShown() return MapTabReloadPrompt ~= nil and MapTabReloadPrompt.shown == true end
+function slash(text) SlashCmdList["MAPTAB"](text) end
+-- The textures a window had before a style reached it: every one is faded, none hidden.
+function Faded(frame, upTo)
+  local left = 0
+  for i = 1, upTo do
+    local t = TEXTURES[i]
+    if t.parent == frame or (frame.NineSlice and t.parent == frame.NineSlice) then
+      if t.alpha ~= 0 then left = left + 1 end
+    end
+  end
+  return left
+end
+`;
+
+// A stand in for EllesmereUI's skinning facade: every call is recorded against the frame it was
+// given, and its window border is a frame of its own, six levels above the window, as the real one.
+const euiStandIn = String.raw`
+EUI_CALLS, EUI_BORDERS = {}, {}
+local function Record(name)
+  return function(f) if type(f) == "table" then EUI_CALLS[f] = (EUI_CALLS[f] or ",") .. name .. "," end end
+end
+EUI_S = { apiVersion = 3, GetStyle = function() return "eui" end, IsEnabled = function() return true end,
+  GetAccentColor = function() return 0.05, 0.82, 0.62 end, GetPanelColor = function() return 0.07, 0.07, 0.07, 0.95 end,
+  GetFont = function() return "Fonts\\FRIZQT__.TTF", "" end, OnLooksChanged = function() end }
+for _, name in ipairs({ "Panel", "Inset", "FadeRegions", "FadeNineSlice", "Button", "WhiteButtonLabel", "StateButtonLabel",
+  "EditBox", "Checkbox", "Dropdown", "ScrollBar", "Tab", "SetTabSelection", "CloseButton", "PageButton", "SquareIcon",
+  "SortHeaderBar", "Font", "White", "ApplyBarFill" }) do EUI_S[name] = Record(name) end
+EUI_S.Shell = function(f)
+  Record("Shell")(f)
+  local border = CreateFrame("Frame", nil, f)
+  border.level = (f.level or 1) + 6
+  border.euiBorder = true
+  EUI_BORDERS[f] = border
+end
+EllesmereUI = { RegisterSkin = function(name, fn) EUI_REG = name EUI_FN = fn end, _DispatchSkinRegistration = function() end }
+function Did(f, what) return f ~= nil and (EUI_CALLS[f] or ""):find("," .. what .. ",", 1, true) ~= nil end
+`;
+
+const styleBlizzard = String.raw`
+MapTabDB = {}
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+fireAll("PLAYER_ENTERING_WORLD")
+
+check("the window style starts on Automatic, Dark at 92 percent", ns.db.style == "auto" and near(ns.db.darkAlpha, 0.92, 0.0001), ns.db.style)
+check("the TOC loads the styles after Map Tab's own files", TOC_TEXT:find("Options.lua\r?\nStyles.lua\r?\nMapTab_Skins.lua") ~= nil)
+check("EllesmereUI is an optional dependency, never a hard one", TOC_TEXT:find("## OptionalDeps: EllesmereUI", 1, true) ~= nil
+  and TOC_TEXT:find("## Dependencies", 1, true) == nil and TOC_TEXT:find("## RequiredDeps", 1, true) == nil)
+check("without EllesmereUI, Automatic is the game's look", ns.report["skin"] == "Blizzard (EllesmereUI is not loaded)", ns.report["skin"])
+check("and nothing is drawn", ns.Styles.Applied() == nil and ns.Styles.S == nil)
+
+WorldMapFrame:Show()
+RunTimers(1)
+ns.CopyBox("Test", "some text")
+local tab = MapTabTab
+local drawn = DarkMarks(MapTabWindow) + DarkMarks(MapTabCopyBox) + DarkMarks(tab)
+  + DarkMarks(tab.parts.minus) + DarkMarks(tab.parts.plus)
+check("no window, the tab or its buttons carry a Dark background", drawn == 0, drawn)
+local fadedHere = 0
+for _, t in ipairs(TEXTURES) do
+  if (t.parent == MapTabWindow or t.parent == MapTabCopyBox or t.parent == tab or t.parent == tab.lines) and t.alpha == 0 then fadedHere = fadedHere + 1 end
+end
+check("nothing of theirs was faded", fadedHere == 0, fadedHere)
+check("the reset and copy icons keep their own crop", tab.parts.reset.mtIcon.texCoord[1] == 0.07 and tab.parts.copy.mtIcon.texCoord[1] == 0.07)
+check("the dividers sit on a frame of their own over the tab", tab.parts.divider.parent == tab.lines and tab.parts.divider2.parent == tab.lines
+  and tab.lines.parent == tab and tab.lines.mouse == false)
+
+local button, slider = LookWidgets()
+check("the Look page is built", ns.report["page look"] == "ok", ns.report["page look"])
+check("and fits inside its frame", type(ns.optionsPageHeight.look) == "number" and ns.optionsPageHeight.look <= ns.optionsPaneHeight, ns.report["page look height"])
+check("the World map page still fits too", ns.optionsPageHeight.map <= ns.optionsPaneHeight, ns.report["page map height"])
+local navLook
+for _, f in ipairs(FRAMES) do if f.kind == "Button" and f.text == "Look" then navLook = f end end
+check("the Look page has its own entry in the list", navLook ~= nil)
+check("the window style button says Automatic", button ~= nil and button.text == "Window style: Automatic", button and button.text)
+check("the note under it says what is in use", NoteShown("In use: Blizzard (EllesmereUI is not loaded)."))
+check("the opacity slider is grayed out while the style is Automatic", Grayed(slider))
+slider.scripts.OnEnter(slider)
+check("its tooltip says it applies to Dark only", TooltipHas("Applies to the Dark style only."))
+button.scripts.OnEnter(button)
+check("the style button's tooltip explains every style and the clicks", TooltipHas(ns.Styles.HELP[1]) and TooltipHas(ns.Styles.HELP[2])
+  and TooltipHas(ns.Styles.HELP[3]) and TooltipHas("Left-click for the next style, right-click for the previous one."))
+
+button.scripts.OnClick(button, "LeftButton")
+check("left-click moves on to Blizzard", ns.db.style == "blizzard" and button.text == "Window style: Blizzard", button.text)
+check("still nothing drawn, and nothing to reload", ns.Styles.Applied() == nil and not PromptShown())
+check("the note follows", NoteShown("In use: Blizzard."))
+check("the slider stays grayed for Blizzard", Grayed(slider))
+check("the account copy follows the choice", MapTabAccountDB.profile.style == "blizzard")
+button.scripts.OnClick(button, "RightButton")
+check("right-click goes back to Automatic", ns.db.style == "auto" and button.text == "Window style: Automatic")
+
+slash("style blizzard")
+check("/maptab style blizzard sets it and says so", ns.db.style == "blizzard" and ChatSaying("window style Blizzard. In use: Blizzard.") == 1, CHAT[#CHAT])
+slash("style nonsense")
+check("an unknown style is refused with the list", ns.db.style == "blizzard" and ChatSaying("the styles are auto, blizzard and dark.") == 1)
+slash("debug")
+check("/maptab debug prints the skin line", ChatSaying("skin:") == 1)
+slash("help")
+check("the help lists the style command", ChatSaying("/maptab style") == 1)
+check("so does the About page", NoteShown("|cffffff00/maptab style auto, blizzard or dark sets the window style|r"))
+
+-- Dark chosen from Blizzard, with the tab, the options window and the copy box already built: it
+-- is drawn at once, with no reload.
+local before = #TEXTURES
+slash("style dark")
+check("from Blizzard, Dark is drawn at once", ns.Styles.Applied() == "dark" and ns.report["skin"] == "Dark", ns.report["skin"])
+check("with no reload asked for", not PromptShown())
+check("on the options window, the copy box and the tab already built", DarkMarks(MapTabWindow) > 0 and DarkMarks(MapTabCopyBox) > 0
+  and DarkMarks(tab) > 0 and DarkMarks(tab.parts.minus) > 0)
+check("their own art faded", Faded(MapTabWindow, before) == 0 and Faded(tab, before) == 0, Faded(MapTabWindow, before))
+check("the dividers keep showing", tab.parts.divider.alpha ~= 0 and tab.parts.divider2.alpha ~= 0)
+check("the slider comes alive for Dark", Live(slider))
+check("the world map itself is never drawn on", DarkMarks(WorldMapFrame) == 0 and DarkMarks(WorldMapFrame.ScrollContainer) == 0)
+check("no skin errors", #SkinErrors() == 0, table.concat(SkinErrors(), "; "))
+check("nothing in the report failed", #ReportFailures() == 0, table.concat(ReportFailures(), "; "))
+`;
+
+const styleDark = String.raw`
+-- Dark saved from an earlier session: drawn once the world is up, and on the tab and the copy box
+-- as they are made later. The tab is made as soon as the map switch is on, so the map is locked
+-- at this login and unlocked afterwards.
+MapTabDB = { style = "dark", darkAlpha = 0.92, windows = { worldmap = false } }
+local ns = LoadMapTab()
+local labelColor = AREA_LABEL.Name.textColor
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+check("nothing is drawn before the world is up", ns.Styles.Applied() == nil)
+local before = #TEXTURES
+fireAll("PLAYER_ENTERING_WORLD")
+check("a saved Dark is drawn once the world is up", ns.Styles.Applied() == "dark" and ns.report["skin"] == "Dark", ns.report["skin"])
+
+local win = MapTabWindow
+local back = Backdrop(win)
+check("the options window gets the Dark backdrop and title strip", back ~= nil and DarkMarks(win) == 2, DarkMarks(win))
+check("in the saved opacity, in its colors", back and back.gradient and near(back.gradient[1].a, 0.92, 0.001) and near(back.gradient[2].a, 0.92, 0.001))
+check("with a rule under the title strip in Map Tab's blue", (function()
+  for _, t in ipairs(TEXTURES) do
+    if t.parent == win and t.layer == "BORDER" and t.sub == nil and t.color and near(t.color[1], 0.35, 0.001) and near(t.color[3], 1, 0.001) then return true end
+  end
+  return false end)())
+check("and a pixel edge", Layer(win, "BORDER") >= 9, Layer(win, "BORDER"))
+check("the window's own art is faded", Faded(win, before) == 0, Faded(win, before))
+check("its border art too", BARE or win.NineSlice.alpha == 0)
+check("its title is white", win.mtTitle.textColor and win.mtTitle.textColor[1] == 1 and win.mtTitle.textColor[3] == 1)
+if not BARE then
+  local close = win.mtClose
+  check("its close button is a drawn X", close ~= nil and Layer(close, "OVERLAY") == 2)
+  local highest = 0
+  for _, child in ipairs(win.kids) do if child ~= close and child.level > highest then highest = child.level end end
+  check("and sits above everything else in the window", close.level > highest, close.level)
+end
+
+check("with the map locked, no tab was made yet", MapTabTab == nil)
+slash("unlock")
+WorldMapFrame:Show()
+RunTimers(1)
+local tab = MapTabTab
+local parts = tab.parts
+check("the tab, made after Dark was drawn, is a flat dark panel", DarkMarks(tab) == 1 and Layer(tab, "BORDER") >= 4, DarkMarks(tab))
+check("its own art faded", (function() local n = 0 for _, t in ipairs(tab.regions) do
+  local dark = (t.layer == "BACKGROUND" and t.sub == -6) or t.sub == 7
+  if t.kind == "texture" and not dark and t.alpha ~= 0 then n = n + 1 end end return n end)() == 0)
+check("its dividers keep showing", parts.divider.alpha ~= 0 and parts.divider2.alpha ~= 0)
+check("its minus and plus are flat buttons", DarkMarks(parts.minus) == 1 and DarkMarks(parts.plus) == 1)
+check("the reset and copy icons lose their bevel", parts.reset.mtIcon.texCoord[1] == 0.08 and parts.copy.mtIcon.texCoord[1] == 0.08)
+check("and get a pixel edge", Layer(parts.reset, "BORDER") == 4 and Layer(parts.copy, "BORDER") == 4)
+check("the resize grip keeps the game's grabber", MapTabGrip.normalArt == "Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up" and DarkMarks(MapTabGrip) == 0)
+check("the tab still lays out and shows", tab.shown == true and tab.w > 60, tab.w)
+check("the tab's backdrop takes no opacity setting: it is a panel, not a window", Backdrop(tab) == nil)
+
+ns.CopyBox("Test", "some text")
+local box = MapTabCopyBox
+check("the copy box, made later, is drawn at once", Backdrop(box) ~= nil and DarkMarks(box) == 2)
+check("with its close button drawn", BARE or Layer(box.mtClose, "OVERLAY") == 2)
+
+local button, slider = LookWidgets()
+check("the opacity slider is live for Dark", Live(slider))
+slider.scripts.OnEnter(slider)
+check("and its tooltip leaves out the Dark only line", not TooltipHas("Applies to the Dark style only."))
+slider:SetValue(60)
+check("moving it changes the setting", near(ns.db.darkAlpha, 0.6, 0.001), ns.db.darkAlpha)
+check("and every Dark window at once", near(back.gradient[1].a, 0.6, 0.001) and Backdrop(box) ~= nil and near(Backdrop(box).gradient[2].a, 0.6, 0.001))
+check("the account copy follows", near(MapTabAccountDB.profile.darkAlpha, 0.6, 0.001))
+
+check("the world map itself is never drawn on", DarkMarks(WorldMapFrame) == 0 and DarkMarks(WorldMapFrame.ScrollContainer) == 0)
+check("nor its zone label", AREA_LABEL.Name.textColor == labelColor and DarkMarks(AREA_LABEL) == 0)
+check("the options keep the game's look, as they do in the game's own panel", DarkMarks(button) == 0 and DarkMarks(slider) == 0
+  and DarkMarks(MapTabOptions) == 0)
+
+-- Leaving a drawn style takes a reload.
+button.scripts.OnClick(button, "LeftButton")
+check("leaving Dark asks for a reload", ns.db.style == "auto" and PromptShown()
+  and (MapTabReloadPrompt.text.text or ""):find("Switching Map Tab to Blizzard takes a reload", 1, true) ~= nil, MapTabReloadPrompt and MapTabReloadPrompt.text.text)
+check("the note says to /reload", NoteShown(ns.Styles.Note()) and ns.Styles.Note():find("/reload", 1, true) ~= nil, ns.Styles.Note())
+check("and so does the report", (ns.report["skin"] or ""):find("Blizzard after a /reload", 1, true) ~= nil, ns.report["skin"])
+check("the slider grays out again", Grayed(slider))
+check("the prompt itself wears Dark", Backdrop(MapTabReloadPrompt) ~= nil)
+C_UI = { Reload = function() RELOADED = true end }
+MapTabReloadPrompt.reload.scripts.OnClick(MapTabReloadPrompt.reload)
+check("its Reload now button reloads", RELOADED == true)
+button.scripts.OnClick(button, "RightButton")
+check("back to Dark, the prompt goes away", ns.db.style == "dark" and not PromptShown() and ns.report["skin"] == "Dark")
+
+ns.ResetToDefaults()
+check("resetting every setting goes back to Automatic, which takes a reload", ns.db.style == "auto" and PromptShown())
+check("and the Dark windows back to 92 percent", near(ns.db.darkAlpha, 0.92, 0.0001) and near(back.gradient[1].a, 0.92, 0.001))
+check("no skin errors", #SkinErrors() == 0, table.concat(SkinErrors(), "; "))
+check("nothing in the report failed", #ReportFailures() == 0, table.concat(ReportFailures(), "; "))
+`;
+
+const styleEllesmere = euiStandIn + String.raw`
+MapTabDB = {}
+local ns = LoadMapTab()
+check("Map Tab registers its skin under its folder name", EUI_REG == "MapTab", EUI_REG)
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+-- EllesmereUI hands its drawing calls over at PLAYER_LOGIN.
+EUI_FN(EUI_S)
+fireAll("PLAYER_ENTERING_WORLD")
+check("Automatic takes EllesmereUI's look", ns.Styles.Applied() == "eui" and ns.report["skin"] == "EllesmereUI (eui style)", ns.report["skin"])
+
+local win = MapTabWindow
+check("the options window is shelled", Did(win, "Shell"))
+check("its title in EllesmereUI's font, white", Did(win.mtTitle, "Font") and Did(win.mtTitle, "White"))
+if not BARE then
+  check("its close button is EllesmereUI's", Did(win.mtClose, "CloseButton"))
+  check("and is raised back above EllesmereUI's border", win.mtClose.level > EUI_BORDERS[win].level, win.mtClose.level)
+end
+
+WorldMapFrame:Show()
+RunTimers(1)
+local tab = MapTabTab
+local parts = tab.parts
+check("the tab, made later, is an EllesmereUI panel", Did(tab, "Panel"))
+check("its minus and plus are EllesmereUI buttons with white labels", Did(parts.minus, "Button") and Did(parts.minus, "WhiteButtonLabel")
+  and Did(parts.plus, "Button") and Did(parts.plus, "WhiteButtonLabel"))
+check("the reset and copy icons are squared", Did(parts.reset.mtIcon, "SquareIcon") and Did(parts.copy.mtIcon, "SquareIcon"))
+check("the percentage and the coordinates take EllesmereUI's font", Did(parts.label, "Font") and Did(parts.coords.player, "Font") and Did(parts.coords.cursor, "Font"))
+check("the dividers are not on the tab, so its fading never reaches them", parts.divider.parent == tab.lines)
+ns.CopyBox("Test", "some text")
+check("the copy box, made later, is shelled", Did(MapTabCopyBox, "Shell"))
+check("Dark draws nothing beside EllesmereUI", DarkMarks(win) + DarkMarks(tab) + DarkMarks(MapTabCopyBox) + DarkMarks(parts.minus) == 0)
+
+local button, slider = LookWidgets()
+check("the world map, its label and the options are left to EllesmereUI and the game", not EUI_CALLS[WorldMapFrame]
+  and not EUI_CALLS[WorldMapFrame.ScrollContainer] and not EUI_CALLS[AREA_LABEL.Name] and not EUI_CALLS[button] and not EUI_CALLS[slider]
+  and not EUI_CALLS[MapTabOptions] and not EUI_CALLS[MapTabGrip])
+ns.SyncOptions() -- as the page does when it is shown
+check("the note says EllesmereUI is in use", NoteShown("In use: EllesmereUI."))
+check("the slider is grayed out", Grayed(slider))
+
+button.scripts.OnClick(button, "LeftButton")
+check("leaving EllesmereUI's look for Blizzard asks for a reload", ns.db.style == "blizzard" and PromptShown()
+  and MapTabReloadPrompt.text.text:find("Switching Map Tab to Blizzard", 1, true) ~= nil)
+check("the report says what comes after the reload", ns.report["skin"] == "EllesmereUI (eui style), Blizzard after a /reload", ns.report["skin"])
+check("the prompt wears EllesmereUI's look too", Did(MapTabReloadPrompt, "Shell"))
+slash("style dark")
+check("so does Dark", PromptShown() and MapTabReloadPrompt.text.text:find("to Dark", 1, true) ~= nil and Grayed(slider) == false)
+slash("style auto")
+check("back to Automatic, nothing is pending", not PromptShown() and ns.report["skin"] == "EllesmereUI (eui style)")
+check("no skin errors", #SkinErrors() == 0, table.concat(SkinErrors(), "; "))
+check("nothing in the report failed", #ReportFailures() == 0, table.concat(ReportFailures(), "; "))
+`;
+
+const styleEllesmereBlizzard = euiStandIn + String.raw`
+-- Blizzard chosen with EllesmereUI running: nothing is handed to it.
+MapTabDB = { style = "blizzard" }
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+EUI_FN(EUI_S)
+fireAll("PLAYER_ENTERING_WORLD")
+WorldMapFrame:Show()
+RunTimers(1)
+check("with Blizzard chosen, EllesmereUI's look is not used", ns.Styles.Applied() == nil and ns.report["skin"] == "Blizzard (chosen in the options)", ns.report["skin"])
+check("and none of its calls were made", next(EUI_CALLS) == nil)
+-- Back to Automatic: EllesmereUI already handed its calls over, so its look is drawn at once.
+slash("style auto")
+check("Blizzard to Automatic draws EllesmereUI's look at once", ns.Styles.Applied() == "eui" and ns.report["skin"] == "EllesmereUI (eui style)"
+  and not PromptShown() and Did(MapTabTab, "Panel") and Did(MapTabWindow, "Shell"), ns.report["skin"])
+`;
+
+const styleEllesmereOff = euiStandIn + String.raw`
+-- EllesmereUI loaded with its Blizzard Skins+ module off: it never calls back.
+EllesmereUI._DispatchSkinRegistration = nil
+MapTabDB = {}
+local ns = LoadMapTab()
+fire("ADDON_LOADED", "MapTab")
+fire("PLAYER_LOGIN")
+fireAll("PLAYER_ENTERING_WORLD")
+WorldMapFrame:Show()
+RunTimers(1)
+check("with its Blizzard Skins+ module off, the report says so", ns.report["skin"] == "Blizzard (EllesmereUI's Blizzard Skins+ module is off)", ns.report["skin"])
+check("and nothing is drawn", ns.Styles.Applied() == nil and next(EUI_CALLS) == nil and DarkMarks(MapTabTab) == 0 and DarkMarks(MapTabWindow) == 0)
+`;
+
+// ------------------------------------------------------------------
 // The runner
 // ------------------------------------------------------------------
 
@@ -2519,6 +3014,8 @@ scenario('no Casement, then the stub turns up', stubTurnsUpLater);
 scenario('area label made after load', areaLabelLate);
 scenario('no addon list API', noAddOnApi, 'NO_ADDON_API=true\n');
 scenario('already brought over', alreadyImported);
+scenario('a gray tint saved under its old spelling', oldGrayTint);
+scenario('a gray tint from Casement under its old spelling', oldGrayTintFromCasement);
 scenario('a second character', secondCharacter);
 scenario('a character that never ran Casement', neverRanCasement);
 scenario('Casement stub switched off after the account came over', stubOffAfterImport);
@@ -2526,5 +3023,10 @@ scenario('Casement stub switched off here after the account came over, no enable
 scenario('old Casement switched off by the notice, a later character', oldOffAfterImport);
 scenario('Casement stub left off by the notice, a later character', stubStoodDownAfterImport);
 scenario('Casement stub whose enable state reads 0, after the account came over', stubStateZeroAfterImport);
+scenario('window styles: Blizzard', stylesCommon + styleBlizzard);
+scenario('window styles: Dark', stylesCommon + styleDark);
+scenario('window styles: EllesmereUI', stylesCommon + styleEllesmere);
+scenario('window styles: EllesmereUI running, Blizzard chosen', stylesCommon + styleEllesmereBlizzard);
+scenario('window styles: EllesmereUI without its skin module', stylesCommon + styleEllesmereOff);
 
 console.log(`RESULT pass=${pass} fail=${fail}`);

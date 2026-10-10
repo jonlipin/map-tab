@@ -12,7 +12,7 @@
 
 local ADDON, ns = ...
 
-ns.version = "1.1.1"
+ns.version = "1.2.0"
 ns.report = {}
 
 local report = ns.report
@@ -42,6 +42,12 @@ ns.defaults = {
 	-- Draw a faint outline over the parts of the map that can be dragged.
 	showGrips = false,
 
+	-- The look of Map Tab's own tab and windows (Styles.lua): "auto" is EllesmereUI's look when it
+	-- is running and the game's otherwise, "blizzard" the game's, "dark" the flat style built in.
+	-- darkAlpha is how solid the Dark windows' backgrounds are.
+	style = "auto",
+	darkAlpha = 0.92,
+
 	map = {
 		resizeGrip = true,
 		scaleButtons = true,
@@ -58,7 +64,7 @@ ns.defaults = {
 		-- Drawing the unexplored parts of the map, tinted so they can still be told apart.
 		reveal = false,
 		revealTint = "blue",
-		-- A zone's level range after its name, pointing at it on the continent map, coloured by
+		-- A zone's level range after its name, pointing at it on the continent map, colored by
 		-- how hard it is for you, as the game does where it knows the range itself.
 		zoneLevels = true,
 	},
@@ -91,6 +97,13 @@ local function FillDefaults(dst, src)
 		end
 	end
 	return dst
+end
+
+-- A saved value in its current spelling: earlier versions of Map Tab, and Casement, saved the
+-- gray tint as "grey".
+local function Respelled(key, value)
+	if key == "revealTint" and value == "grey" then return "gray" end
+	return value
 end
 
 local function CountKeys(t)
@@ -153,6 +166,7 @@ local function LoadDB(phase)
 		report["db " .. phase] = fresh and "fresh (first run)" or "loaded from this character"
 	end
 	FillDefaults(MapTabDB, ns.defaults)
+	MapTabDB.map.revealTint = Respelled("revealTint", MapTabDB.map.revealTint)
 	ns.db = MapTabDB
 
 	MapTabAccountDB = type(MapTabAccountDB) == "table" and MapTabAccountDB or {}
@@ -170,6 +184,11 @@ function ns.ResetToDefaults()
 	MirrorToAccount()
 	if ns.Windows and ns.Windows.ResetAll then pcall(ns.Windows.ResetAll) end
 	ns.Refresh()
+	-- The window style goes back to Automatic too, which may take a reload to show.
+	if ns.Styles then
+		pcall(ns.Styles.SetDarkAlpha, MapTabDB.darkAlpha)
+		pcall(ns.Styles.Changed)
+	end
 	if ns.SyncOptions then pcall(ns.SyncOptions) end
 	Print("Settings reset to defaults. The map areas the reveal has learned were kept.")
 end
@@ -345,7 +364,7 @@ end
 -- setting in with its default, which is no choice of this character's, and would otherwise undo
 -- a choice made in Map Tab on another character that the adopted account copy carries.
 local function Adopt(dst, src, defaults, key, fresh)
-	local value = src[key]
+	local value = Respelled(key, src[key])
 	if value == nil or type(value) ~= type(defaults[key]) then return 0 end
 	if fresh and value == defaults[key] then return 0 end
 	if not fresh and dst[key] ~= defaults[key] then return 0 end
@@ -407,7 +426,7 @@ end
 -- One plain value, followed from the old Casement: only while Map Tab still holds what it had
 -- right after the import, since anything changed in Map Tab since is the newer choice.
 local function Follow(dst, src, defaults, key, was)
-	local value = src[key]
+	local value = Respelled(key, src[key])
 	if value == nil or type(value) ~= type(defaults[key]) then return 0 end
 	if dst[key] ~= was or dst[key] == value then return 0 end
 	dst[key] = value
@@ -697,9 +716,19 @@ function ns.CreatePanel(name)
 	end
 	panel.mtTitle = title
 
+	panel.mtClose = panel.CloseButton
 	if not panel.CloseButton then
 		local ok, button = pcall(CreateFrame, "Button", nil, panel, "UIPanelCloseButton")
-		if ok and button then button:SetPoint("TOPRIGHT", 1, 1) end
+		if ok and button then
+			button:SetPoint("TOPRIGHT", 1, 1)
+			panel.mtClose = button
+		end
+	end
+	-- The X's own click goes through HideUIPanel, which the game refuses to addon code in combat
+	-- ("Interface action blocked"). Hiding a window of our own is allowed then, so the X does that;
+	-- the window's OnHide still runs.
+	if type(panel.mtClose) == "table" and panel.mtClose.SetScript then
+		panel.mtClose:SetScript("OnClick", function() panel:Hide() end)
 	end
 
 	panel:SetMovable(true)
@@ -708,6 +737,8 @@ function ns.CreatePanel(name)
 	panel:RegisterForDrag("LeftButton")
 	panel:SetScript("OnDragStart", panel.StartMoving)
 	panel:SetScript("OnDragStop", panel.StopMovingOrSizing)
+	-- A window made after the window style was drawn (the copy box) is drawn in it at once.
+	if ns.SkinWindow then ns.SkinWindow(panel) end
 	return panel
 end
 
@@ -985,6 +1016,7 @@ local function PrintHelp()
 		"|cffffff00/maptab coords|r puts your coordinates in a box to copy",
 		"|cffffff00/maptab mapdata|r reports how much of the shown map the reveal knows; |cffffff00dump|r opens all of it",
 		"|cffffff00/maptab grips|r outlines the parts of the map you can drag",
+		"|cffffff00/maptab style|r |cffffff00auto|r, |cffffff00blizzard|r or |cffffff00dark|r sets the look of the tab and Map Tab's windows",
 		"|cffffff00/maptab debug|r prints what resolved on this client",
 	}
 	for _, line in ipairs(lines) do DEFAULT_CHAT_FRAME:AddMessage("   " .. line) end
@@ -1048,6 +1080,17 @@ SlashCmdList["MAPTAB"] = function(msg)
 		ns.Refresh()
 		if ns.SyncOptions then pcall(ns.SyncOptions) end
 		Print("the map's drag areas are now " .. (ns.db.showGrips and "outlined" or "invisible") .. ".")
+
+	elseif cmd == "style" then
+		local Styles = ns.Styles
+		if not Styles then Print("the window styles are not loaded, see /maptab debug.") return end
+		if rest == "auto" or rest == "automatic" then Styles.Set("auto")
+		elseif rest == "blizzard" or rest == "dark" then Styles.Set(rest)
+		elseif rest == "" then Styles.Cycle(1)
+		else Print("the styles are auto, blizzard and dark.") return end
+		ns.Refresh()
+		if ns.SyncOptions then pcall(ns.SyncOptions) end
+		Print("window style " .. Styles.Name(ns.db.style) .. ". " .. Styles.Note())
 
 	else
 		PrintHelp()

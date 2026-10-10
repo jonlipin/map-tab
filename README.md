@@ -59,8 +59,8 @@ windows, and every character's saved bank, bags and guild bank, are in the separ
 - Point at a zone on the continent map and its level range follows its name in the label at the
   top of the map, for example Westfall (10-20), the way the game itself does for zones it knows the
   levels of. On this client it knows none, so Map Tab supplies them.
-- The range is coloured by how hard the zone is for you, in the game's own quest colours: red or
-  orange while it is above you, yellow while you are inside it, green or grey once you have
+- The range is colored by how hard the zone is for you, in the game's own quest colors: red or
+  orange while it is above you, yellow while you are inside it, green or gray once you have
   outgrown it.
 - Every zone on Kalimdor and the Eastern Kingdoms has its range, plus the WoW: Forever zones
   Zephras Isle (1-12), Shen'dralas (40-45), Riverglades (35-45) and Mount Hyjal (55-60), read off
@@ -71,12 +71,23 @@ windows, and every character's saved bank, bags and guild bank, are in the separ
 
 - Off by default. Switched on, the parts of the map you have not explored yet are drawn in with
   their real map art.
-- Tinted blue, sepia or grey so you can still tell them from the parts you have been to, or not
+- Tinted blue, sepia or gray so you can still tell them from the parts you have been to, or not
   tinted at all.
 - The areas of every map in this build ship with the addon (84 maps, generated from the client's
   own map tables). An area missing from that list is learned when a character who has explored it
   opens the map there with the reveal switched on.
   `/maptab mapdata` says how much of the open map is known.
+
+**A look of your choice**
+
+- The Look page in the options picks how the tab, the options window and the copy box are drawn:
+  **Automatic** matches EllesmereUI when it is installed and keeps the game's look otherwise,
+  **Blizzard** keeps the game's panel art, and **Dark** is a flat dark style built in that needs no
+  other addon, with a slider for how opaque its backgrounds are.
+- The world map itself keeps the look the game or EllesmereUI gives it.
+- Leaving a drawn style takes a reload, which Map Tab offers. EllesmereUI is optional; its look can
+  be switched off for Map Tab under Blizzard Skins+ > Window Skins > Third-Party Addons in its own
+  options.
 
 ## Install
 
@@ -90,12 +101,13 @@ windows, and every character's saved bank, bags and guild bank, are in the separ
 ## Options
 
 **Esc > Options > AddOns > Map Tab**, or `/maptab` (`/maptab window` opens them in a window of
-their own). Two pages:
+their own). Three pages:
 
 - **World map**: the world map switch (Map Tab's one on and off switch) with its Reset, dragging by
   the top bar, the corner handle, the drag anywhere key, the drag area outlines, the percentage
   buttons, the resize grip, the map size slider, the step size, the coordinates, the cursor
   coordinates, the zone level ranges, and the unexplored areas with their tint.
+- **Look**: the window style (Automatic, Blizzard or Dark) and the Dark background opacity.
 - **About**: the commands, a button that prints the debug report, and a button that resets every
   setting (the map areas the reveal has learned are kept).
 
@@ -113,6 +125,7 @@ There is no minimap button.
 | `/maptab coords` | Puts your coordinates in a box to copy |
 | `/maptab mapdata` | Reports how much of the shown map the reveal knows; `dump` opens every area learned on this account, to copy out |
 | `/maptab grips` | Outlines the parts of the map you can drag (again to stop) |
+| `/maptab style` | `auto`, `blizzard` or `dark` sets the look of the tab and Map Tab's windows; on its own it steps to the next one |
 | `/maptab debug` | Prints what resolved on this client |
 
 ## Coming from Casement
@@ -191,21 +204,23 @@ what the reveal knows, and whether any Casement data was brought over.
 The addon files sit at the top of the repository: `MapTab.toc`, `Core.lua` (saved variables, the
 Casement carry-over, slash commands), `Windows.lua` (the move engine), `Map.lua` (the tab, the
 scaling, the top bar, the coordinates), `Reveal.lua` (the unexplored areas), `Levels.lua` (the
-zone level ranges), `Options.lua` and
+zone level ranges), `Options.lua`, `Styles.lua` (the window styles, shared with the author's
+other addons), `MapTab_Skins.lua` (what Map Tab restyles) and
 `Data/MapOverlays.lua`. `tests` and `tools` are left out of the CurseForge package (`.pkgmeta`).
 
 `tests/maptabtest.js` is an offline harness. It stubs the game API in fengari, including a small
 layout engine for points, anchors and scales, and walks the addon's main paths: clamping, dragging,
-scaling, snapping, the tab, the coordinates, the reveal, the zone level ranges and the options. It builds a stand in for
+scaling, snapping, the tab, the coordinates, the reveal, the zone level ranges, the options, the
+window styles, and each window's close button in combat. It builds a stand in for
 the quest panel, so the layering the resize grip needs is asserted rather than assumed, and runs a
 second move engine on the same panel hooks to prove the two leave each other's windows alone. Each
 way Casement's data can be waiting at the first login runs in a fresh Lua state of its own.
 `tests/README.md` lists every scenario.
 
 ```
-node tests/maptabtest.js              # 498 checks
-node tests/maptabtest.js --bare       # every UI template missing (498 checks)
-node tests/maptabtest.js --noenum     # proves Map Tab never reads the bag enums (498 checks)
+node tests/maptabtest.js              # 615 checks
+node tests/maptabtest.js --bare       # every UI template missing (610 checks)
+node tests/maptabtest.js --noenum     # proves Map Tab never reads the bag enums (615 checks)
 node tests/maptabtest.js --verbose    # also prints the addon's chat output
 ```
 

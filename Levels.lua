@@ -3,10 +3,10 @@
 --
 -- Point at a zone on the continent map and the game names it in the label at the top of the map.
 -- Blizzard's label code (AreaLabelFrameMixin:OnUpdate) adds the zone's level range to that name,
--- "Westfall (10-20)", coloured by how hard the zone is for you, but only when C_Map.GetMapLevels has
+-- "Westfall (10-20)", colored by how hard the zone is for you, but only when C_Map.GetMapLevels has
 -- numbers for the zone. On this client it has none: in build 1.60.1.70170 not one UiMap row carries
 -- a ContentTuningID, which is where those numbers come from, so the label shows the bare name. Map
--- Tab adds the same text from its own table, coloured the same way.
+-- Tab adds the same text from its own table, colored the same way.
 --
 -- It only reads the game's label and adds to the text on screen once the game has written it for
 -- the frame. The label's own state (its table of labels by type) is never touched, so the game's
@@ -79,7 +79,7 @@ Levels.RANGES = {
 
 local hooked = false
 
--- The game's quest difficulty colours, for a client that does not carry its table.
+-- The game's quest difficulty colors, for a client that does not carry its table.
 local FALLBACK = {
 	impossible = { r = 1.00, g = 0.10, b = 0.10 },
 	verydifficult = { r = 1.00, g = 0.50, b = 0.25 },
@@ -102,9 +102,9 @@ local function On()
 end
 Levels.On = On
 
-local function Colour(key)
-	local colours = type(QuestDifficultyColors) == "table" and QuestDifficultyColors or FALLBACK
-	local c = colours[key]
+local function Color(key)
+	local colors = type(QuestDifficultyColors) == "table" and QuestDifficultyColors or FALLBACK
+	local c = colors[key]
 	if type(c) == "table" and type(c.r) == "number" then return c end
 	return FALLBACK[key]
 end
@@ -115,7 +115,7 @@ local function PlayerLevel()
 	return ok and Plain(level) or 1
 end
 
--- How hard something of `level` is for you, coloured the way the game colours a quest of that level.
+-- How hard something of `level` is for you, colored the way the game colors a quest of that level.
 local function Difficulty(level, playerLevel)
 	if GetQuestDifficultyColor then
 		local ok, c = pcall(GetQuestDifficultyColor, level)
@@ -123,25 +123,25 @@ local function Difficulty(level, playerLevel)
 	end
 	-- The same steps as the game's own, for a client without the function.
 	local diff = level - playerLevel
-	if diff >= 5 then return Colour("impossible") end
-	if diff >= 3 then return Colour("verydifficult") end
-	if diff >= -4 then return Colour("difficult") end
+	if diff >= 5 then return Color("impossible") end
+	if diff >= 3 then return Color("verydifficult") end
+	if diff >= -4 then return Color("difficult") end
 	local range = 5
 	if UnitQuestTrivialLevelRange then
 		local ok, r = pcall(UnitQuestTrivialLevelRange, "player")
 		if ok and Plain(r) then range = r end
 	end
-	if -diff <= range then return Colour("standard") end
-	return Colour("trivial")
+	if -diff <= range then return Color("standard") end
+	return Color("trivial")
 end
 
-local function ColourCode(c)
+local function ColorCode(c)
 	local function byte(v) return math.max(0, math.min(255, math.floor(v * 255 + 0.5))) end
 	return string.format("|cff%02x%02x%02x", byte(c.r), byte(c.g), byte(c.b))
 end
 
--- " (10-20)" in the colour the game would give it, or " (15)" for a zone of a single level; nil for
--- a zone with no range. The colour follows the game's own rule: a zone above you is coloured by its
+-- " (10-20)" in the color the game would give it, or " (15)" for a zone of a single level; nil for
+-- a zone with no range. The color follows the game's own rule: a zone above you is colored by its
 -- lowest level, one below you by two under its highest (so a zone you have outgrown is not yellow),
 -- and one you are inside is yellow.
 function Levels.RangeText(mapID, playerLevel)
@@ -155,10 +155,10 @@ function Levels.RangeText(mapID, playerLevel)
 	elseif playerLevel > high then
 		c = Difficulty(high - 2, playerLevel)
 	else
-		c = Colour("difficult")
+		c = Color("difficult")
 	end
 	local span = (low ~= high) and (low .. "-" .. high) or tostring(high)
-	return ColourCode(c) .. " (" .. span .. ")|r"
+	return ColorCode(c) .. " (" .. span .. ")|r"
 end
 
 -- Whether the game has its own range for a zone, in which case its label already shows one.

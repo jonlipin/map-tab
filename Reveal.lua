@@ -36,7 +36,7 @@ Reveal.TINTS = {
 	{ value = "none", label = "No tint", color = nil },
 	{ value = "blue", label = "Blue", color = { 0.62, 0.72, 1.0 } },
 	{ value = "sepia", label = "Sepia", color = { 0.95, 0.85, 0.65 } },
-	{ value = "grey", label = "Grey", color = { 0.7, 0.7, 0.72 } },
+	{ value = "gray", label = "Gray", color = { 0.7, 0.7, 0.72 } },
 }
 
 -- ------------------------------------------------------------------
